@@ -5,33 +5,35 @@ The full run (tuning, accuracy, verification and all timing experiments) took 28
 core 1 (CPU family 6, model 79).
 
 \subsection{Correctness}
-Table~\ref{tab:correct} summarises the equivalence checks over all 20 DRIVE test images (6.6 million pixels per
-configuration). In all 33 comparisons (four design variants at $p=1,2,4,8$, with and without floating-point
-contraction, plus STARE at $p=4$), the CLAHE output, the vesselness map $V$ and the final mask are bit-identical
-to the serial build. Contraction does change the arithmetic itself: the serial FMA and no-FMA builds agree
-bit-for-bit on only 48.6\% of $V$ values, with $\max|\Delta V|=2.2\times10^{-3}$, yet their masks are
-identical on every pixel. The TIFF decoder reproduces Pillow's green channel exactly on the three images
-checked. Against \texttt{skimage.\allowbreak filters.\allowbreak frangi} on the same CLAHE input, $V$ correlates with a mean Pearson
-coefficient of 0.785 (0.755--0.811) and a mean Spearman coefficient of 0.877 over four test images; the
-difference comes from the two implementations' derivative normalisation.
+Table~\ref{tab:correct} lists the four verification checks. The first is the one that matters for the
+parallel study: across 33 OpenMP configurations (four designs at $p=1,2,4,8$, each in a build with and without
+floating-point contraction, plus STARE at $p=4$) and 6.6 million pixels per configuration, every CLAHE byte,
+every float of the vesselness map $V$ and every mask pixel equals the serial result. This holds by
+construction, because each output element is computed by one thread in the serial summation order, so
+OpenMP changes when values are computed but never how. The second check shows why that matters: compiler
+contraction alone does change the arithmetic, leaving only 48.6\% of $V$ values bit-identical between the
+serial FMA and no-FMA builds ($\max|\Delta V|=2.2\times10^{-3}$), yet no mask pixel changes. A tolerance-based
+check would therefore have been needed if the parallel code had reordered any sum. The last two checks
+validate the implementation itself. Our TIFF decoder matches Pillow exactly. Our filter correlates with
+\texttt{skimage.\allowbreak filters.\allowbreak frangi} on the same input (Pearson 0.785, Spearman 0.877) but
+does not match it, because the two normalise the derivative kernels differently.
 
 \begin{table}[t]
 \centering
-\caption{Serial vs OpenMP equivalence on the 20 DRIVE test images (fraction of identical values; $p=1$--8).}\label{tab:correct}
+\caption{Verification summary (DRIVE test images unless stated).}\label{tab:correct}
 \footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lrrrr@{}}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.36\columnwidth}>{\raggedright\arraybackslash}p{0.25\columnwidth}>{\raggedright\arraybackslash}p{0.33\columnwidth}@{}}
 \toprule
-Comparison & CLAHE & Mask & $V$ bits & max $|\Delta V|$ \\
+Check & Scope & Result \\
 \midrule
-FMA, base & 1.0000 & 1.0000 & 1.0000 & 0 \\
-FMA, dynamic & 1.0000 & 1.0000 & 1.0000 & 0 \\
-FMA, atomic & 1.0000 & 1.0000 & 1.0000 & 0 \\
-FMA, scale-parallel & 1.0000 & 1.0000 & 1.0000 & 0 \\
-no-FMA, all variants & 1.0000 & 1.0000 & 1.0000 & 0 \\
-STARE, base, $p=4$ & 1.0000 & 1.0000 & 1.0000 & 0 \\
-\midrule
-serial FMA vs serial no-FMA & 1.0000 & 1.0000 & 0.4857 & $2.2\times10^{-3}$ \\
+Serial vs OpenMP: 4 designs $\times$ $p\in\{1,2,4,8\}$ $\times$ 2 builds, plus STARE & 33 configs, 20 images, CLAHE, $V$, mask & all bit-identical \\
+\addlinespace
+Serial FMA vs serial no-FMA build & 20 images, $V$, mask & 48.6\% of $V$ bit-identical, $\max|\Delta V|=2.2\times10^{-3}$; masks identical \\
+\addlinespace
+C TIFF decoder vs Pillow & 3 images, green channel & identical \\
+\addlinespace
+C Frangi vs \texttt{skimage} \texttt{frangi} & 4 images, $V$ in FOV & Pearson 0.785 (0.755--0.811), Spearman 0.877 \\
 \bottomrule
 \end{tabular}
 \end{table}
