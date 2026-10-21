@@ -1,0 +1,211 @@
+\section{Results}\label{sec:results}
+
+\subsection{Correctness}
+Table~\ref{tab:correct} summarises the equivalence checks over the 20 DRIVE test images.
+\ph{Fill from verify\_*.csv: fraction of identical CLAHE bytes, mask pixels and bit-identical $V$ for every
+variant and thread count, FMA and no-FMA builds, plus STARE.} The serial FMA and no-FMA builds
+\ph{do / do not} produce identical $V$ (\ph{max $|\Delta V|$}). Our TIFF decoder reproduces Pillow's green
+channel exactly on the three images checked. Against \texttt{skimage.filters.frangi} on the same CLAHE input,
+the Pearson correlation of $V$ inside the FOV is \ph{r} and the Spearman correlation is \ph{rho}.
+
+\begin{table}[t]
+\centering
+\caption{Serial vs OpenMP equivalence on the DRIVE test set (fractions over all pixels).}\label{tab:correct}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Build / variant / $p$ & CLAHE equal & Mask equal & $V$ bit-equal & max $|\Delta V|$ \\
+\midrule
+FMA, base, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
+FMA, dynamic, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
+FMA, atomic, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
+FMA, scale-parallel, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
+no-FMA, all variants, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
+STARE, base, 4 & \ph{} & \ph{} & \ph{} & \ph{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Segmentation accuracy}
+The grid search selected $\kappa=\ph{}$, $\beta=\ph{}$, $c=\ph{}$, $e=\ph{}$ and $\tau=\ph{}$
+(mean training Dice \ph{}). Table~\ref{tab:acc} gives the accuracy with these settings fixed.
+
+\begin{table}[t]
+\centering
+\caption{Segmentation accuracy inside the FOV (mean over 20 images; Dice $\pm$ s.d.).}\label{tab:acc}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Set & Dice & Sens. & Spec. & Acc. \\
+\midrule
+DRIVE test & \ph{} & \ph{} & \ph{} & \ph{} \\
+DRIVE train (tuning) & \ph{} & \ph{} & \ph{} & \ph{} \\
+STARE (cross-dataset) & \ph{} & \ph{} & \ph{} & \ph{} \\
+\midrule
+LightVesselNet~\cite{sobhan2026}, DRIVE & 0.8070 & 0.8189 & -- & -- \\
+LightVesselNet~\cite{sobhan2026}, STARE & 0.8072 & 0.8499 & -- & -- \\
+LFA-Net~\cite{mehmood2025lfa}, DRIVE & 0.8328 & -- & -- & -- \\
+LVS-Net~\cite{mehmood2024lvs}, DRIVE & 0.8644 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:qual} shows two test images with their vesselness maps and the errors of the final mask.
+\ph{One or two sentences on where errors concentrate: thin capillaries missed, optic-disc rim and lesions as
+false positives.}
+
+\begin{figure*}[t]
+\centering
+\phfig{0.85\textwidth}{0.3\textwidth}{fig\_qualitative.pdf}
+\caption{DRIVE test images 01 and 02: input, vesselness $V$, and the final mask compared with the manual
+segmentation (true positives black, false positives orange, false negatives blue).}\label{fig:qual}
+\end{figure*}
+
+\subsection{Serial profile}
+Table~\ref{tab:serial} breaks the serial time per image into stages. \ph{The Gaussian-derivative passes take
+X\% and the eigenvalue/vesselness stage Y\%; CLAHE and morphology together take Z\%.}
+
+\begin{table}[t]
+\centering
+\caption{Serial time per DRIVE test image by stage (20 images $\times$ 30 runs).}\label{tab:serial}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Stage & Mean (ms) & S.d. & Median & Share (\%) \\
+\midrule
+Green channel & \ph{} & \ph{} & \ph{} & \ph{} \\
+CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
+Gaussian derivatives & \ph{} & \ph{} & \ph{} & \ph{} \\
+Eigen + vesselness & \ph{} & \ph{} & \ph{} & \ph{} \\
+Threshold & \ph{} & \ph{} & \ph{} & \ph{} \\
+Morphology & \ph{} & \ph{} & \ph{} & \ph{} \\
+\midrule
+Total & \ph{} & \ph{} & \ph{} & 100 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Thread scaling}
+Table~\ref{tab:threads} and Fig.~\ref{fig:speedup} give whole-pipeline and per-stage scaling.
+\ph{Speedup at $p=1,2,4,8$; efficiency; Karp--Flatt $e$; throughput in images/s. Note the OpenMP build at
+$p=1$ against the serial build, the small gain at $p=2$ with close binding, the jump at $p=4$, and the plateau
+or loss at $p=8$.}
+
+\begin{table}[t]
+\centering
+\caption{Whole-pipeline scaling on DRIVE test images (close binding, \texttt{OMP\_PLACES=threads}).}\label{tab:threads}
+\footnotesize
+\begin{tabular}{@{}rrrrrr@{}}
+\toprule
+$p$ & Time (ms) & $S$ & $E$ & $e$ & Images/s \\
+\midrule
+serial & \ph{} & 1.00 & -- & -- & \ph{} \\
+1 & \ph{} & \ph{} & \ph{} & -- & \ph{} \\
+2 & \ph{} & \ph{} & \ph{} & \ph{} & \ph{} \\
+4 & \ph{} & \ph{} & \ph{} & \ph{} & \ph{} \\
+8 & \ph{} & \ph{} & \ph{} & \ph{} & \ph{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\phfig{\columnwidth}{0.65\columnwidth}{fig\_speedup.pdf}
+\caption{Speedup over the serial build per stage and for the whole pipeline; dashed line is ideal.}\label{fig:speedup}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\phfig{\columnwidth}{0.6\columnwidth}{fig\_karpflatt.pdf}
+\caption{Karp--Flatt serial fraction $e$ per stage.}\label{fig:kf}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Per-stage speedup over the serial build.}\label{tab:stagesp}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Stage & $p=1$ & $p=2$ & $p=4$ & $p=8$ \\
+\midrule
+Green channel & \ph{} & \ph{} & \ph{} & \ph{} \\
+CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
+Gaussian derivatives & \ph{} & \ph{} & \ph{} & \ph{} \\
+Eigen + vesselness & \ph{} & \ph{} & \ph{} & \ph{} \\
+Threshold & \ph{} & \ph{} & \ph{} & \ph{} \\
+Morphology & \ph{} & \ph{} & \ph{} & \ph{} \\
+Total & \ph{} & \ph{} & \ph{} & \ph{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Thread placement}
+Table~\ref{tab:affinity} repeats the sweep on five images with three placements. \ph{With one thread per
+physical core first, $p=2$ reaches X$\times$ instead of Y$\times$; at $p=4$ all placements coincide because every
+logical CPU is used.}
+
+\begin{table}[t]
+\centering
+\caption{Effect of thread placement (5 DRIVE test images).}\label{tab:affinity}
+\footnotesize
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Placement & $S(2)$ & $S(4)$ & $S(8)$ \\
+\midrule
+close, threads & \ph{} & \ph{} & \ph{} \\
+spread, cores & \ph{} & \ph{} & \ph{} \\
+no binding & \ph{} & \ph{} & \ph{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Alternative OpenMP designs}
+Table~\ref{tab:variants} compares each ablation with the base design on the stage it changes.
+\ph{Dynamic scheduling of the 64 CLAHE tiles costs/gains X\%; atomic histograms are Y$\times$ slower; running
+the scales concurrently is Z$\times$ slower at $p=4$.}
+
+\begin{table}[t]
+\centering
+\caption{Design ablations: stage time relative to the base design (ratio $>1$ is slower).}\label{tab:variants}
+\footnotesize
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Variant & Stage & $p=1$ & $p=2$ & $p=4$ & $p=8$ \\
+\midrule
+dynamic tiles & CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
+atomic histogram & CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
+scale-parallel & Frangi & \ph{} & \ph{} & \ph{} & \ph{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Resolution scaling}
+Table~\ref{tab:scaling} and Fig.~\ref{fig:scaling} show how speedup changes with image size.
+\ph{Serial time grows from X ms at 0.33 MP to Y s at 21.1 MP; speedup at the best thread count stays between
+A and B; throughput in megapixels per second.}
+
+\begin{table}[t]
+\centering
+\caption{Resolution scaling (3 DRIVE test images, best thread count).}\label{tab:scaling}
+\footnotesize
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Scale & MP & Serial (ms) & OpenMP (ms) & $S$ & MP/s \\
+\midrule
+1$\times$ & 0.33 & \ph{} & \ph{} & \ph{} & \ph{} \\
+2$\times$ & 1.32 & \ph{} & \ph{} & \ph{} & \ph{} \\
+4$\times$ & 5.28 & \ph{} & \ph{} & \ph{} & \ph{} \\
+8$\times$ & 21.12 & \ph{} & \ph{} & \ph{} & \ph{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\phfig{\columnwidth}{0.65\columnwidth}{fig\_scaling.pdf}
+\caption{Speedup over the serial build against image size for each thread count.}\label{fig:scaling}
+\end{figure}
+
+\subsection{Cross-dataset timing}
+On the 20 STARE images ($700\times605$) the serial pipeline takes \ph{} ms per image and reaches
+\ph{}$\times$ at $p=4$, \ph{consistent with / different from} DRIVE.

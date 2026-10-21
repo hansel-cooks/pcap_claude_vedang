@@ -1,0 +1,46 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{newtxtext,newtxmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\graphicspath{{../figures/}}
+\usepackage{xcolor}
+% Placeholders for numbers that come from the final Kaggle run; removed once filled in.
+\newcommand{\ph}[1]{\textcolor{red}{\textbf{[#1\ifx&#1&TBD\fi]}}}
+\newcommand{\phfig}[3]{\fbox{\parbox[c][#2][c]{\dimexpr#1-2\fboxsep-2\fboxrule}{\centering\textcolor{red}{\textbf{[figure #3 pending final run]}}}}}
+
+\begin{document}
+
+\title{Where Do OpenMP Threads Help? A Stage-by-Stage Performance Analysis of a Multi-Scale Frangi Pipeline
+for Retinal Vessel Segmentation}
+
+\author{
+\IEEEauthorblockN{Devik Nangia, Snehal Tyagi, Srijan Bera, Prathamesh Patil}
+\IEEEauthorblockA{Manipal Institute of Technology, Manipal, India\\
+Parallel Computing Laboratory: Mini Project}
+}
+
+\maketitle
+
+\input{../sections/abstract}
+
+\begin{IEEEkeywords}
+parallel computing, OpenMP, multicore, Hyper-Threading, Frangi filter, CLAHE, retinal vessel segmentation,
+diabetic retinopathy, performance analysis
+\end{IEEEkeywords}
+
+\input{../sections/intro}
+\input{../sections/related}
+\input{../sections/method}
+\input{../sections/results}
+\input{../sections/discussion}
+\input{../sections/conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{../refs}
+
+\end{document}

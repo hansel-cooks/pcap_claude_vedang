@@ -1,0 +1,4 @@
+Set,Dice,Sensitivity,Specificity,Accuracy
+DRIVE test (20),0.6966 $\pm$ 0.0388,0.7694,0.9360,0.9146
+"DRIVE train (20, tuning set)",0.6672 $\pm$ 0.0832,0.7745,0.9175,0.8991
+"STARE (20, cross-dataset)",0.6190 $\pm$ 0.0851,0.8436,0.8963,0.8913

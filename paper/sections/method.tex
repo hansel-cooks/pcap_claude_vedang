@@ -1,0 +1,106 @@
+\section{Method}\label{sec:method}
+
+The serial and the OpenMP builds are compiled from one C source file set. The serial build omits
+\texttt{-fopenmp}, so every pragma is ignored and the same loops run on one thread. Any difference in time is
+therefore due to parallel execution, not to a different algorithm.
+
+\subsection{Pipeline}\label{sec:pipeline}
+\textit{Stage 1, green channel.} $G(x,y)$ is taken from the RGB fundus image, where vessels have the highest
+contrast. DRIVE images are LZW-compressed TIFF files, which we decode with our own C reader (verified
+pixel-exact against Pillow); STARE images are PPM files.
+
+\textit{Stage 2, CLAHE~\cite{zuiderveld1994}.} The image is split into an $8\times8$ grid of tiles of
+$\lceil w/8\rceil\times\lceil h/8\rceil$ pixels. Each tile's 256-bin histogram is clipped at
+$\kappa N_t/256$ counts ($N_t$ tile pixels, $\kappa$ the clip factor), the excess is spread uniformly over the
+bins, and the cumulative histogram gives a lookup table. Each output pixel is a bilinear blend of the four
+nearest tile tables.
+
+\textit{Stage 3, multi-scale Frangi filter~\cite{frangi1998}.} With $I$ the CLAHE output scaled to $[0,1]$, the
+second derivatives at scale $\sigma$ are computed by separable 1-D convolutions with sampled Gaussian kernels of
+radius $r=\lceil3\sigma\rceil$: $I_{xx}=g_\sigma^{(y)}*(g''^{(x)}_\sigma*I)$,
+$I_{yy}=g''^{(y)}_\sigma*(g^{(x)}_\sigma*I)$ and $I_{xy}=g'^{(y)}_\sigma*(g'^{(x)}_\sigma*I)$, with replicated
+borders. The kernels are normalised so that $\sum g=1$, $\sum k\,g'(k)=-1$, $\sum g''=0$ and
+$\sum \tfrac12k^2g''(k)=1$. One row sweep produces the three row-filtered images and one column sweep the three
+derivatives, i.e.\ six 1-D passes per scale. The scale-normalised Hessian $\sigma^2\mathbf H$ has eigenvalues
+\begin{equation}
+\lambda_{1,2}=\tfrac12(a+d)\mp\sqrt{\tfrac14(a-d)^2+b^2},\quad a=\sigma^2I_{xx},\ b=\sigma^2I_{xy},\ d=\sigma^2I_{yy},
+\end{equation}
+relabelled so that $|\lambda_1|\le|\lambda_2|$. Vessels are dark on a bright background, so the response is
+non-zero only when $\lambda_2>0$:
+\begin{equation}
+\mathcal V_\sigma=\exp\!\left(-\frac{R_B^2}{2\beta^2}\right)\left[1-\exp\!\left(-\frac{S^2}{2c^2}\right)\right],
+\quad R_B=\frac{|\lambda_1|}{\lambda_2},\ S^2=\lambda_1^2+\lambda_2^2,
+\end{equation}
+and $V(x,y)=\max_{\sigma\in\{1,2,3,4\}}\mathcal V_\sigma(x,y)$.
+
+\textit{Stage 4, threshold and morphology.} $V$ is thresholded at a global value $\tau$ and multiplied by the
+field-of-view (FOV) mask eroded by $e$ pixels, which removes the bright ring that the filter produces on the FOV
+border. A $3\times3$ binary opening (erosion then dilation) removes speckle and a $3\times3$ closing bridges
+one-pixel gaps.
+
+\textit{Stage 5, evaluation.} True and false positives and negatives are counted inside the (uneroded) FOV and
+converted to Dice $=2TP/(2TP+FP+FN)$, sensitivity, specificity and accuracy.
+
+\subsection{Parameter selection}\label{sec:tuning}
+All parameters are chosen on the 20 DRIVE training images only, by maximising the mean per-image Dice over a
+grid: $\kappa\in\{1,2,3,4\}$, $\beta\in\{0.5,1\}$, $c\in\{0.005,0.01,0.02,0.04,0.08,0.16\}$,
+$e\in\{4,8,12\}$ and 40 thresholds spaced logarithmically in $[10^{-3},0.9]$ (5{,}760 settings). The selected
+setting is then fixed and applied unchanged to the 20 DRIVE test images, scored against the first observer's
+manual segmentation, and to the 20 STARE images, scored against Hoover's labels~\cite{hoover2000}. STARE has no
+FOV masks, so the FOV is the set of pixels whose maximum channel value exceeds 35, cleaned by a $3\times3$
+opening.
+
+\subsection{OpenMP design}\label{sec:omp}
+Table~\ref{tab:design} lists the parallel decomposition of each stage. All loops use
+\texttt{schedule(static)} unless stated, and each output element is computed by exactly one thread, so
+floating-point summation order is the same as in the serial build. Three alternative designs are kept as
+ablations: a dynamic schedule for the CLAHE tile loop, a pixel-parallel CLAHE histogram with
+\texttt{\#pragma omp atomic} increments, and a Frangi decomposition that runs the four scales concurrently with
+one thread each instead of parallelising inside each scale.
+
+\begin{table}[t]
+\centering
+\caption{Parallel decomposition by stage.}\label{tab:design}
+\footnotesize
+\begin{tabular}{@{}p{0.23\columnwidth}p{0.70\columnwidth}@{}}
+\toprule
+Stage & OpenMP decomposition \\
+\midrule
+Green channel & \texttt{parallel for} over pixels \\
+CLAHE & \texttt{parallel for} over the 64 tiles, each thread owning its tile histogram and lookup table; \texttt{parallel for} over rows for the bilinear blend \\
+Gaussian derivatives & row sweep: \texttt{parallel for} over rows with a thread-private padded row buffer; column sweep: \texttt{parallel for} over output rows, inner loop over $x$ vectorised \\
+Eigen + vesselness & \texttt{parallel for} over pixels, fused with the running maximum over scales \\
+Threshold & \texttt{parallel for} over pixels, fused with the FOV mask \\
+Morphology & four $3\times3$ passes, each a \texttt{parallel for} over rows \\
+Metrics & \texttt{reduction(+:TP,FP,TN,FN)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Correctness checks}\label{sec:verify}
+For every test image the serial build writes the CLAHE output, the vesselness map $V$ and the final mask, and
+every OpenMP configuration (each design variant at 1, 2, 4 and 8 threads) writes the same files. We report the
+fraction of identical CLAHE bytes, identical mask pixels and bit-identical $V$ values, and the maximum
+$|\Delta V|$. The comparison is repeated for builds with floating-point contraction disabled
+(\texttt{-ffp-contract=off}). As an external check, $V$ from the serial build is compared with
+\texttt{skimage.filters.frangi}~\cite{vanderwalt2014} applied to the same CLAHE output with the same $\sigma$,
+$\beta$ and $c$; the two implementations normalise derivatives differently, so we report correlation rather
+than equality.
+
+\subsection{Platform and measurement protocol}\label{sec:protocol}
+All timed runs use one Kaggle CPU notebook: an Intel Xeon at 2.20\,GHz exposing 4 logical CPUs (2 physical
+cores with 2-way Hyper-Threading~\cite{marr2002}), 32\,KiB L1d and 256\,KiB L2 per core, a 55\,MiB L3
+and 31\,GiB RAM, with a cgroup quota of 4 CPUs, running Linux 6.18 with GCC 13.3 (\texttt{-O3 -march=native}, OpenMP 4.5). Nothing is
+timed on the authors' laptops. Thread counts are 1, 2, 4 and 8 (the last oversubscribes the 4 logical CPUs);
+threads are bound with \texttt{OMP\_PROC\_BIND=close} and \texttt{OMP\_PLACES=threads} unless stated. Each
+configuration runs 5 untimed warm-up iterations and 30 timed iterations per image over all 20 DRIVE test images.
+Time is measured with \texttt{omp\_get\_wtime} (OpenMP build) or the monotonic clock (serial build) around each
+stage; file I/O and image decoding are excluded. Speedup is $S(p)=T_\text{serial}/T(p)$ with
+$T_\text{serial}$ from the pragma-free build, efficiency is $E=S/p$ and the Karp--Flatt serial
+fraction~\cite{karp1990} is $e=(1/S-1/p)/(1-1/p)$. Throughput is images per second for one image at a time.
+
+For resolution scaling, three test images are bilinearly resampled to $2\times$, $4\times$ and $8\times$ linear
+size (0.33 to 21.1 megapixels) before timing, with the FOV mask resampled by nearest neighbour and the erosion
+radius scaled accordingly; the number of timed iterations is reduced at large sizes (10, 10, 5 and 3). A
+thread-placement experiment repeats the thread sweep with one thread per physical core first
+(\texttt{OMP\_PLACES=cores}, \texttt{OMP\_PROC\_BIND=spread}) and with binding disabled.

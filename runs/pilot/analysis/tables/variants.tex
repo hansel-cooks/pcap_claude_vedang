@@ -1,0 +1,18 @@
+\begin{tabular}{lrrrrr}
+\toprule
+Variant & Threads & Stage & Base (ms) & Variant (ms) & Ratio \\
+\midrule
+dynamic & 1 & CLAHE & 5.07 & 5.08 & 1.00 \\
+dynamic & 2 & CLAHE & 4.19 & 4.20 & 1.00 \\
+dynamic & 4 & CLAHE & 2.12 & 2.24 & 1.06 \\
+dynamic & 8 & CLAHE & 2.28 & 2.35 & 1.03 \\
+atomic & 1 & CLAHE & 5.07 & 7.71 & 1.52 \\
+atomic & 2 & CLAHE & 4.19 & 6.80 & 1.62 \\
+atomic & 4 & CLAHE & 2.12 & 4.01 & 1.89 \\
+atomic & 8 & CLAHE & 2.28 & 3.70 & 1.62 \\
+scalepar & 1 & Frangi (gauss+vess) & 92.75 & 92.43 & 1.00 \\
+scalepar & 2 & Frangi (gauss+vess) & 77.90 & 75.60 & 0.97 \\
+scalepar & 4 & Frangi (gauss+vess) & 40.32 & 48.15 & 1.19 \\
+scalepar & 8 & Frangi (gauss+vess) & 42.33 & 47.90 & 1.13 \\
+\bottomrule
+\end{tabular}

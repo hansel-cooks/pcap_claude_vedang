@@ -1,0 +1,53 @@
+\section{Introduction}\label{sec:intro}
+
+Diabetic retinopathy damages the small blood vessels of the retina and is a leading preventable cause of
+vision loss. It is diagnosed from colour fundus photographs, and the first computational step in most automated
+screening systems is segmenting the retinal vessels~\cite{fraz2012}. India alone had an estimated 89.8 million
+adults with diabetes in 2024~\cite{idf2025}. Screening camps capture fundus images in bulk, often on modest
+hardware and with few specialists available to read them, so throughput (images per second) is a practical
+requirement.
+
+The multi-scale Frangi vesselness filter~\cite{frangi1998} is a widely used classical method for this step. It
+needs no training data, behaves deterministically and can be written in plain C. Its cost grows with image
+resolution and with the number of scales, because every pixel needs several Gaussian-derivative convolutions
+followed by an eigenvalue computation. A complete screening pipeline adds contrast enhancement before the filter
+and binary clean-up after it, and these stages stress a processor in different ways: convolution is
+memory-bound, the eigenvalue step is arithmetic-heavy, CLAHE builds histograms, and morphology moves single
+bytes.
+
+Multicore CPUs are the hardware every screening site already has. A developer choosing how to parallelise such
+a pipeline needs to know, stage by stage, where OpenMP threads help, where they stop helping, and why.
+Published parallel retinal work has used other algorithms or isolated single stages~\cite{arguello2018,bensayadia2020}, and the closest cross-platform study covers a single enhancement filter~\cite{song2022}.
+
+This paper implements the full pipeline (green-channel extraction, CLAHE, multi-scale Frangi filtering,
+thresholding and morphological clean-up) in C, parallelises every stage with OpenMP, and analyses its
+performance stage by stage against a pragma-free serial build of the same code. Accuracy is measured on the
+DRIVE benchmark~\cite{staal2004}, with STARE~\cite{hoover2000} as a cross-dataset check, using parameters tuned
+on the DRIVE training images only. The contributions are:
+\begin{itemize}
+\item a documented serial/OpenMP C implementation whose outputs are bit-identical across all thread counts and
+design variants, verified on every test image;
+\item a stage-by-stage measurement of time, speedup, efficiency and Karp--Flatt serial fraction on a
+2-core/4-thread cloud CPU, including the effect of Hyper-Threading and thread placement;
+\item an ablation of three alternative OpenMP designs (dynamic tile scheduling, atomic histograms and
+scale-level parallelism) and a resolution-scaling study from 0.33 to 21.1 megapixels;
+\item segmentation accuracy on DRIVE and STARE reported alongside published lightweight deep models.
+\end{itemize}
+
+The study tests four hypotheses. H1 and H4 are taken unchanged from the project proposal. The proposal's two
+GPU hypotheses fall outside this OpenMP-only study and are replaced by H2 and H3, which were written after a
+short pilot run (two images, three repetitions) used to debug the harness; the pilot data are not reported.
+\textbf{H1}: OpenMP speedup grows sub-linearly with thread count and is limited by the number of physical
+cores and by memory bandwidth.
+\textbf{H2}: OpenMP speedup is stable or grows with image size, because the fixed costs of creating parallel
+regions shrink relative to the work.
+\textbf{H3}: the best decomposition differs by stage: owner-computes tile histograms beat atomic
+histograms in CLAHE, and parallelism inside each scale beats running the scales concurrently in the Frangi
+stage, because the four scales have unequal cost.
+\textbf{H4}: the classical pipeline does not match the best lightweight deep models in Dice (for example,
+0.8070 on DRIVE for LightVesselNet~\cite{sobhan2026}); its value is that it is training-free and its parallel
+behaviour can be explained.
+
+Section~\ref{sec:related} reviews related work, Section~\ref{sec:method} describes the pipeline, the OpenMP
+design and the measurement protocol, Section~\ref{sec:results} reports the results and
+Section~\ref{sec:discussion} discusses them against the hypotheses.

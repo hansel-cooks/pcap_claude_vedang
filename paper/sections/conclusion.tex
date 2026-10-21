@@ -1,0 +1,18 @@
+\section{Conclusion}\label{sec:conclusion}
+We parallelised a complete CLAHE--Frangi--morphology retinal vessel pipeline with OpenMP and measured it stage
+by stage against a pragma-free serial build of the same C code. The parallel version produces bit-identical
+results, reaches \ph{S4}$\times$ on two physical cores with Hyper-Threading and processes \ph{} DRIVE images per
+second, with accuracy (Dice \ph{} on DRIVE, \ph{} on STARE) below lightweight deep models but obtained without
+training. The Gaussian-derivative passes dominate the cost; thread placement on SMT cores, owner-computes
+histograms and parallelism inside each Frangi scale are the design decisions that matter most. Future work
+covers machines with more cores, explicit cache blocking of the column passes, and the GPU comparison planned in
+the original proposal.
+
+\section*{Code and data availability}
+The C source, the Kaggle driver, all CSV logs and the analysis scripts are in the project repository. DRIVE and
+STARE are available from their original providers~\cite{staal2004,hoover2000}.
+
+\section*{Use of AI tools}
+Code, experiment scripts and the manuscript draft were produced with the assistance of an AI coding assistant
+(Claude, Anthropic) under the authors' direction. All numbers were measured by the authors' runs, and the
+authors reviewed and take responsibility for the content.

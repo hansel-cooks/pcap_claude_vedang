@@ -1,0 +1,4 @@
+file,pixels,identical,max_abs_diff
+01_test,329960,329960,0
+21_training,329960,329960,0
+32_training,329960,329960,0

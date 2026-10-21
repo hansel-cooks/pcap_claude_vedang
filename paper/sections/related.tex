@@ -1,0 +1,40 @@
+\section{Related Work}\label{sec:related}
+
+\subsection{Surveys and accuracy-centred work}
+Fraz et al.~\cite{fraz2012} categorise classical retinal vessel extraction methods, including Hessian-based
+vesselness, and compare them on DRIVE~\cite{staal2004} and STARE~\cite{hoover2000}. Later reviews concentrate
+on deep networks: Chen et al.~\cite{chen2021} survey architectures and open problems, Sule~\cite{sule2022}
+organises 110 papers from 2016--2021 by the technique used to improve accuracy, and Goji\'c et
+al.~\cite{gojic2023} summarise recent methods with their reported metrics. Execution time on commodity hardware
+is not an organising axis in any of these surveys.
+
+\subsection{Classical vesselness methods}
+The Frangi filter~\cite{frangi1998} scores each pixel by how tube-like its Hessian eigenvalue structure is,
+over several Gaussian scales. Mahapatra et al.~\cite{mahapatra2022} keep this interpretable core, tune its
+parameters with particle-swarm optimisation and follow it with fuzzy clustering. The method is unsupervised,
+but the optimisation and the clustering add computation, and parallel execution is not studied.
+
+\subsection{Lightweight deep models}
+Galdran et al.~\cite{galdran2022} show that minimalistic U-Nets approach state-of-the-art accuracy and that
+cross-dataset generalisation remains weak. Deployment-oriented networks report model size instead of measured
+time: LVS-Net~\cite{mehmood2024lvs} (0.71\,M parameters, 29.60 GFLOPs, DRIVE Dice 0.8644),
+LFA-Net~\cite{mehmood2025lfa} (0.11\,M parameters, 4.46 GFLOPs, DRIVE Dice 0.8328) and
+LightVesselNet~\cite{sobhan2026} (75\,K parameters, Dice 0.8070 on DRIVE and 0.8072 on STARE). These models
+need annotated training data, trained weights and a deep-learning runtime.
+
+\subsection{Parallel and accelerated vessel analysis}
+Arg\"uello et al.~\cite{arguello2018} map a filtering-plus-contour-tracing method to CUDA and segment a DRIVE
+image in 14\,ms on a GTX~680. Ben Sayadia et al.~\cite{bensayadia2020} accelerate the Hessian eigenvalue step
+on a GPU and report a 27$\times$ speedup over a multithreaded CPU version, applied to thick-vessel segmentation.
+Nahar et al.~\cite{nahar2026} move Hessian-based filtering of 3-D mitochondrial images to the GPU (up to
+11$\times$ and 30$\times$) and note that small inputs under-use the device. Song et al.~\cite{song2022} compare
+serial, OpenMP, CUDA and OpenCL versions of unsharp masking over image sizes from $525^2$ to
+$16{,}364\times8{,}182$ and report OpenMP speedups that track the core count. That study is the closest
+methodological template for ours, but it covers a single enhancement filter and no vessel analysis.
+
+\subsection{Gap}
+We found no study that parallelises a complete CLAHE--Frangi--morphology pipeline on a multicore CPU and
+profiles every stage. Prior parallel retinal work either uses a different algorithm~\cite{arguello2018} or a
+single stage~\cite{bensayadia2020}. Generic comparisons~\cite{song2022} cover one filter whose behaviour may not
+transfer, because the Frangi pipeline mixes a memory-bound convolution stage, an arithmetic-heavy eigenvalue
+stage, a histogram stage and byte-wide morphology.

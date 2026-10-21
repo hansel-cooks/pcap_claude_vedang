@@ -1,0 +1,17 @@
+# build outputs
+openmp_frangi/bin/
+openmp_frangi/bin_nofma/
+*.exe
+*.o
+# LaTeX intermediates (PDFs are kept)
+*.aux
+*.log
+*.blg
+*.bbl
+*.out
+# Python
+__pycache__/
+*.pyc
+# secrets never belong here
+.kaggle/
+*access_token*

@@ -1,0 +1,47 @@
+% Springer LNCS conference format (llncs.cls, available on Overleaf and from Springer's author page).
+\documentclass[runningheads]{llncs}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{newtxtext,newtxmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\graphicspath{{../figures/}}
+\usepackage{xcolor}
+% Placeholders for numbers that come from the final Kaggle run; removed once filled in.
+\newcommand{\ph}[1]{\textcolor{red}{\textbf{[#1\ifx&#1&TBD\fi]}}}
+\newcommand{\phfig}[3]{\fbox{\parbox[c][#2][c]{\dimexpr#1-2\fboxsep-2\fboxrule}{\centering\textcolor{red}{\textbf{[figure #3 pending final run]}}}}}
+% IEEEtran-only commands used in the shared sections
+\providecommand{\IEEEPARstart}[2]{#1#2}
+
+\begin{document}
+
+\title{Where Do OpenMP Threads Help? A Stage-by-Stage Performance Analysis of a Multi-Scale Frangi Pipeline
+for Retinal Vessel Segmentation}
+\titlerunning{Stage-by-Stage OpenMP Analysis of a Frangi Pipeline}
+
+\author{Devik Nangia \and Snehal Tyagi \and Srijan Bera \and Prathamesh Patil}
+\authorrunning{D. Nangia et al.}
+\institute{Manipal Institute of Technology, Manipal, India}
+
+\maketitle
+
+\input{../sections/abstract}
+
+\begin{keywords}
+Parallel computing \and OpenMP \and Multicore \and Hyper-Threading \and Frangi filter \and CLAHE \and
+Retinal vessel segmentation \and Diabetic retinopathy
+\end{keywords}
+
+\input{../sections/intro}
+\input{../sections/related}
+\input{../sections/method}
+\input{../sections/results}
+\input{../sections/discussion}
+\input{../sections/conclusion}
+
+\bibliographystyle{splncs04}
+\bibliography{../refs}
+
+\end{document}

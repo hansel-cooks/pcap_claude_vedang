@@ -1,0 +1,17 @@
+\begin{abstract}
+Diabetic retinopathy screening depends on fast and reliable segmentation of retinal vessels, and the
+multi-scale Frangi vesselness filter is a training-free classical method whose cost grows with image resolution
+and with the number of scales. We implement a complete pipeline (green-channel extraction, CLAHE, multi-scale
+Frangi filtering, thresholding and morphological clean-up) in C, parallelise every stage with OpenMP, and
+compare it stage by stage with a pragma-free serial build of the same code on a 2-core/4-thread cloud CPU.
+Serial and OpenMP outputs are bit-identical on every DRIVE and STARE image for all thread counts and design
+variants. With parameters tuned on the DRIVE training images only, the pipeline reaches a mean Dice of
+\ph{DICE-DRIVE} on the DRIVE test set and \ph{DICE-STARE} on STARE. The whole pipeline speeds up by
+\ph{S4}$\times$ with 4 threads (efficiency \ph{E4}), while 2 threads placed on the two hyperthreads of one core
+give only \ph{S2-close}$\times$ against \ph{S2-spread}$\times$ when spread over both cores. The Gaussian-derivative
+stage dominates serial time (\ph{GAUSS-SHARE}\%); morphology scales worst. Owner-computes tile histograms beat
+atomic histograms in CLAHE by \ph{ATOMIC-RATIO}$\times$, and running the four Frangi scales concurrently is
+\ph{SCALEPAR-RATIO}$\times$ slower than parallelising inside each scale because of load imbalance. Speedup stays
+between \ph{SMIN} and \ph{SMAX} from 0.33 to 21.1 megapixels. We report Karp--Flatt serial fractions per
+stage and throughput in images per second, and place the accuracy beside published lightweight deep models.
+\end{abstract}
