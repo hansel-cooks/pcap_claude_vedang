@@ -1,0 +1,1 @@
+best mean Dice (training) = 0.6871  clip=4 beta=0.5 c=0.04 thr=0.316041 fov_erode=4

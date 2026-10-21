@@ -1,0 +1,12 @@
+4
+4
+               total        used        free      shared  buff/cache   available
+Mem:            31Gi       999Mi        26Gi       1.2Mi       4.4Gi        30Gi
+Swap:             0B          0B          0B
+Linux 3fd945bef0c0 6.18.48+ #1 SMP Sun Sep 27 17:32:16 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Copyright (C) 2023 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+model name	: Intel(R) Xeon(R) CPU @ 2.20GHz

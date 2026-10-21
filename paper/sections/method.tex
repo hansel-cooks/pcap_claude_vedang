@@ -21,15 +21,15 @@ radius $r=\lceil3\sigma\rceil$: $I_{xx}=g_\sigma^{(y)}*(g''^{(x)}_\sigma*I)$,
 $I_{yy}=g''^{(y)}_\sigma*(g^{(x)}_\sigma*I)$ and $I_{xy}=g'^{(y)}_\sigma*(g'^{(x)}_\sigma*I)$, with replicated
 borders. The kernels are normalised so that $\sum g=1$, $\sum k\,g'(k)=-1$, $\sum g''=0$ and
 $\sum \tfrac12k^2g''(k)=1$. One row sweep produces the three row-filtered images and one column sweep the three
-derivatives, i.e.\ six 1-D passes per scale. The scale-normalised Hessian $\sigma^2\mathbf H$ has eigenvalues
+derivatives, i.e.\ six 1-D passes per scale. With $a=\sigma^2I_{xx}$, $b=\sigma^2I_{xy}$ and
+$d=\sigma^2I_{yy}$, the scale-normalised Hessian has eigenvalues
 \begin{equation}
-\lambda_{1,2}=\tfrac12(a+d)\mp\sqrt{\tfrac14(a-d)^2+b^2},\quad a=\sigma^2I_{xx},\ b=\sigma^2I_{xy},\ d=\sigma^2I_{yy},
+\lambda_{1,2}=\tfrac12(a+d)\mp\sqrt{\tfrac14(a-d)^2+b^2},
 \end{equation}
 relabelled so that $|\lambda_1|\le|\lambda_2|$. Vessels are dark on a bright background, so the response is
-non-zero only when $\lambda_2>0$:
+non-zero only when $\lambda_2>0$. With $R_B=|\lambda_1|/\lambda_2$ and $S^2=\lambda_1^2+\lambda_2^2$,
 \begin{equation}
 \mathcal V_\sigma=\exp\!\left(-\frac{R_B^2}{2\beta^2}\right)\left[1-\exp\!\left(-\frac{S^2}{2c^2}\right)\right],
-\quad R_B=\frac{|\lambda_1|}{\lambda_2},\ S^2=\lambda_1^2+\lambda_2^2,
 \end{equation}
 and $V(x,y)=\max_{\sigma\in\{1,2,3,4\}}\mathcal V_\sigma(x,y)$.
 
@@ -43,7 +43,8 @@ converted to Dice $=2TP/(2TP+FP+FN)$, sensitivity, specificity and accuracy.
 
 \subsection{Parameter selection}\label{sec:tuning}
 All parameters are chosen on the 20 DRIVE training images only, by maximising the mean per-image Dice over a
-grid: $\kappa\in\{1,2,3,4\}$, $\beta\in\{0.5,1\}$, $c\in\{0.005,0.01,0.02,0.04,0.08,0.16\}$,
+grid: $\kappa\in\{1,2,3,4\}$, $\beta\in\{0.5,1\}$,
+$c\in\{0.005,\allowbreak 0.01,\allowbreak 0.02,\allowbreak 0.04,\allowbreak 0.08,\allowbreak 0.16\}$,
 $e\in\{4,8,12\}$ and 40 thresholds spaced logarithmically in $[10^{-3},0.9]$ (5{,}760 settings). The selected
 setting is then fixed and applied unchanged to the 20 DRIVE test images, scored against the first observer's
 manual segmentation, and to the 20 STARE images, scored against Hoover's labels~\cite{hoover2000}. STARE has no
@@ -83,7 +84,7 @@ every OpenMP configuration (each design variant at 1, 2, 4 and 8 threads) writes
 fraction of identical CLAHE bytes, identical mask pixels and bit-identical $V$ values, and the maximum
 $|\Delta V|$. The comparison is repeated for builds with floating-point contraction disabled
 (\texttt{-ffp-contract=off}). As an external check, $V$ from the serial build is compared with
-\texttt{skimage.filters.frangi}~\cite{vanderwalt2014} applied to the same CLAHE output with the same $\sigma$,
+\texttt{skimage.\allowbreak filters.\allowbreak frangi}~\cite{vanderwalt2014} applied to the same CLAHE output with the same $\sigma$,
 $\beta$ and $c$; the two implementations normalise derivatives differently, so we report correlation rather
 than equality.
 
@@ -101,6 +102,8 @@ fraction~\cite{karp1990} is $e=(1/S-1/p)/(1-1/p)$. Throughput is images per seco
 
 For resolution scaling, three test images are bilinearly resampled to $2\times$, $4\times$ and $8\times$ linear
 size (0.33 to 21.1 megapixels) before timing, with the FOV mask resampled by nearest neighbour and the erosion
-radius scaled accordingly; the number of timed iterations is reduced at large sizes (10, 10, 5 and 3). A
-thread-placement experiment repeats the thread sweep with one thread per physical core first
-(\texttt{OMP\_PLACES=cores}, \texttt{OMP\_PROC\_BIND=spread}) and with binding disabled.
+radius scaled accordingly; the number of timed iterations is reduced at large sizes (10, 10, 5 and 3). The
+three design ablations are timed on the first five test images with the same protocol. A thread-placement
+experiment repeats the sweep on the same five images with one thread per physical core first
+(\texttt{OMP\_PLACES=cores}, \texttt{OMP\_PROC\_BIND=spread}) and with binding disabled. STARE is timed on all 20
+images with 2 warm-up and 10 timed iterations.

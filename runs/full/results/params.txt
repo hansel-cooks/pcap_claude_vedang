@@ -1,0 +1,6 @@
+clip 4
+beta 0.5
+c 0.04
+thr 0.316041
+tiles 8
+fov_erode 4

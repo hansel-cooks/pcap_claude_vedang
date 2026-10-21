@@ -1,0 +1,5 @@
+image,pearson,spearman,mask_dice_vs_skimage
+01_test,0.7909,0.8817,0.6615
+02_test,0.7845,0.8713,0.662
+03_test,0.7545,0.8786,0.5888
+04_test,0.8113,0.8778,0.6809

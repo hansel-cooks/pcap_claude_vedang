@@ -1,0 +1,5 @@
+build=omp
+compiler=13.3.0
+openmp=201511
+num_procs=4
+max_threads=4

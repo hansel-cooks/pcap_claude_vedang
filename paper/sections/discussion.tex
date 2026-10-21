@@ -1,43 +1,61 @@
 \section{Discussion}\label{sec:discussion}
 
 \subsection{Hypotheses}
-\textbf{H1 (sub-linear scaling, limited by physical cores).} \ph{Supported / not supported.} The machine has two
-physical cores. \ph{With close binding, two threads share one core and give only X$\times$; spreading them over
-both cores gives Y$\times$. Going from 2 to 4 threads adds the second hyperthread on each core and raises the
-speedup to Z$\times$, a Hyper-Threading gain of W\% that comes from overlapping memory stalls in the convolution
-and the exponentials in the vesselness stage~\cite{marr2002}. Oversubscription to 8 threads adds no gain.} The
-Karp--Flatt fraction \ph{rises / stays flat} with $p$, which indicates \ph{growing overhead (thread
-contention, shared caches) rather than a fixed serial part}~\cite{karp1990}.
+\textbf{H1 (sub-linear scaling, limited by physical cores): supported.} The best speedup on two physical cores
+is 2.12, and almost all of it comes from the second core: two threads on two cores already reach 1.98, while
+the second hyperthread of each core adds only 7\%. Hyper-Threading~\cite{marr2002} helps little because the
+dominant Gaussian passes keep both hardware threads of a core waiting on the same load and floating-point
+units. With close binding the curve shows the topology directly: two threads on one core gain 7--8\%, the same
+Hyper-Threading gain seen at $p=4$. The Karp--Flatt fraction rises from 0.31 at $p=4$ to 0.42 at $p=8$, which
+indicates growing overhead from oversubscription rather than a fixed serial part~\cite{karp1990}. The high
+value at $p=2$ (0.86) reflects the close placement, not serial code: with spread placement the efficiency at
+$p=2$ is 0.99.
 
-\textbf{H2 (speedup stable or growing with image size).} \ph{Supported / not supported: speedup ranges from A to
-B between 0.33 and 21.1 megapixels.} At native size each parallel region does about a third of a megapixel of
-work, so fork--join overhead is small compared with the Gaussian passes; \ph{at large sizes the working set
-(six float images of 4\,B per pixel) exceeds the 55\,MiB L3 above roughly 2.3 megapixels, and the column passes
-become bound by memory bandwidth~\cite{williams2009}.}
+\textbf{H2 (speedup stable or growing with image size): supported.} The 4-thread speedup stays between 2.13 and
+2.31 from 0.33 to 21.1 megapixels and is slightly higher above native size, where each parallel region has more
+work to amortise its fork and join. The serial cost per megapixel rises by 24\% at 21.1 megapixels. At that size
+the six float images used per scale (24 bytes per pixel, about 500\,MB) far exceed the 55\,MiB L3, so the
+column passes stream from DRAM; the parallel version suffers the same effect, which is why the speedup does not
+change~\cite{williams2009}.
 
-\textbf{H3 (best decomposition differs by stage).} \ph{Supported / not supported.} Owner-computes tile histograms
-need no synchronisation, whereas the atomic variant serialises updates to popular bins of the same tile.
-\ph{Dynamic scheduling of the 64 tiles changes little because tile costs are nearly equal.} Running the four
-scales concurrently is limited by the largest scale: the $\sigma=4$ kernels have $2\cdot12+1=25$ taps against 7
-for $\sigma=1$, so one thread carries most of the work while the others idle.
+\textbf{H3 (best decomposition differs by stage): supported.} In CLAHE, one thread per tile needs no
+synchronisation, and the 64 tiles cost almost the same, so dynamic scheduling neither helps nor hurts. The
+atomic variant is 53\% slower even on one thread, because every increment becomes a locked read-modify-write,
+and gets worse with more threads. In the Frangi stage the cost of a scale grows with its kernel length
+($2\lceil3\sigma\rceil+1$ = 7, 13, 19 and 25 taps), so the thread that owns $\sigma=4$ carries 39\% of the
+convolution work, and running scales concurrently leaves threads idle once the short scales finish. The
+variants are equal up to $p=2$ and fall behind only at $p\ge4$.
 
-\textbf{H4 (accuracy below lightweight deep models).} \ph{Supported:} the DRIVE test Dice of \ph{} is below
-0.8070 for LightVesselNet~\cite{sobhan2026}, 0.8328 for LFA-Net~\cite{mehmood2025lfa} and 0.8644 for
-LVS-Net~\cite{mehmood2024lvs}. The pipeline needs no annotated data, no weights and no deep-learning runtime, and
-its parameters transfer to STARE without retuning (Dice \ph{}). The deep-model figures come from the authors'
-own papers and protocols, so the comparison is indicative.
+\textbf{H4 (accuracy below lightweight deep models): supported.} The DRIVE test Dice of 0.7126 is below 0.8070
+for LightVesselNet~\cite{sobhan2026}, 0.8328 for LFA-Net~\cite{mehmood2025lfa} and 0.8644 for
+LVS-Net~\cite{mehmood2024lvs}. The pipeline needs no annotated data, no weights and no deep-learning runtime.
+Its parameters transfer to STARE without retuning, losing 0.059 Dice, a drop driven mainly by images with
+bright lesions. The deep-model figures are taken from the authors' papers and protocols, so the comparison is
+indicative only.
+
+\subsection{Why the small stages scale badly}
+Morphology, thresholding and green-channel extraction each take well under a millisecond per image. A parallel
+region on this machine costs a few microseconds to fork and join, which is a large fraction of a 0.2\,ms stage
+split four ways, and at $p=8$ each logical CPU time-slices two threads, so a thread that is descheduled
+delays the whole region. Morphology runs four such regions back to back, each over only 0.33\,MB of byte
+data, so it slows down at $p=8$ (speedup 0.59). Because these stages make up under
+0.5\% of the time, their poor scaling has no visible effect on the total. Fusing them into one parallel region
+would be the fix if they ever mattered.
 
 \subsection{Practical implications}
-\ph{At X images per second on a 2-core VM, one such machine processes a screening camp's daily intake of N
-images in M minutes.} Because the Gaussian-derivative stage dominates, a developer should parallelise it first;
-morphology and thresholding are cheap enough that their poor scaling hardly affects the total. Thread placement
-matters as much as thread count on small SMT machines: an unbound or close-bound run with fewer threads than
-logical CPUs can leave a whole core idle.
+At 19.2 images per second on a 2-core VM, one such machine processes 10{,}000 fundus images in under nine
+minutes, so throughput is not the limiting factor for a screening camp at DRIVE resolution. At 21 megapixels it
+handles 0.26 images per second, where a second machine, more cores or a GPU would matter. Three practical
+lessons follow. First, parallelise the Gaussian-derivative stage first, since it is 72\% of the time. Second,
+on small SMT machines, check thread placement before adding threads: close binding with fewer threads than
+logical CPUs can leave a whole core idle, while the default unbound run happened to spread correctly. Third,
+prefer owner-computes histograms to atomics.
 
 \subsection{Limitations}
-The study uses a single cloud VM with two physical cores, shared with other tenants, so results for larger
-core counts and for NUMA systems are not covered, and run-to-run variance is higher than on a dedicated
-machine; we report standard deviations and medians for this reason. The CPU model is reported only as
-``Intel Xeon @ 2.20\,GHz''. GPU implementations, which the original proposal planned, are outside the scope of
-this paper. The accuracy pipeline uses one global threshold and a fixed FOV erosion, and STARE FOV masks are
-computed by thresholding rather than supplied with the dataset.
+The study uses one cloud VM with two physical cores shared with other tenants, so it says nothing about larger
+core counts, NUMA systems or dedicated hardware, and its timings carry more noise than a dedicated machine's;
+the coefficient of variation of the serial total was 2.6\%. The CPU model is reported only as an Intel Xeon at
+2.20\,GHz (family 6, model 79). The placement and ablation experiments use five of the twenty test images. GPU
+implementations, which the original proposal planned, are outside the scope of this paper. The accuracy
+pipeline uses one global threshold and a fixed FOV erosion, and the STARE FOV masks are computed by
+thresholding rather than supplied with the dataset.

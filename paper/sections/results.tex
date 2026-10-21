@@ -1,46 +1,61 @@
 \section{Results}\label{sec:results}
 
+The full run (tuning, accuracy, verification and all timing experiments) took 28.5 minutes on the Kaggle VM.
+\texttt{lscpu -e} confirms the topology: logical CPUs 0 and 2 share physical core 0, and CPUs 1 and 3 share
+core 1 (CPU family 6, model 79).
+
 \subsection{Correctness}
-Table~\ref{tab:correct} summarises the equivalence checks over the 20 DRIVE test images.
-\ph{Fill from verify\_*.csv: fraction of identical CLAHE bytes, mask pixels and bit-identical $V$ for every
-variant and thread count, FMA and no-FMA builds, plus STARE.} The serial FMA and no-FMA builds
-\ph{do / do not} produce identical $V$ (\ph{max $|\Delta V|$}). Our TIFF decoder reproduces Pillow's green
-channel exactly on the three images checked. Against \texttt{skimage.filters.frangi} on the same CLAHE input,
-the Pearson correlation of $V$ inside the FOV is \ph{r} and the Spearman correlation is \ph{rho}.
+Table~\ref{tab:correct} summarises the equivalence checks over all 20 DRIVE test images (6.6 million pixels per
+configuration). In all 33 comparisons (four design variants at $p=1,2,4,8$, with and without floating-point
+contraction, plus STARE at $p=4$), the CLAHE output, the vesselness map $V$ and the final mask are bit-identical
+to the serial build. Contraction does change the arithmetic itself: the serial FMA and no-FMA builds agree
+bit-for-bit on only 48.6\% of $V$ values, with $\max|\Delta V|=2.2\times10^{-3}$, yet their masks are
+identical on every pixel. The TIFF decoder reproduces Pillow's green channel exactly on the three images
+checked. Against \texttt{skimage.\allowbreak filters.\allowbreak frangi} on the same CLAHE input, $V$ correlates with a mean Pearson
+coefficient of 0.785 (0.755--0.811) and a mean Spearman coefficient of 0.877 over four test images; the
+difference comes from the two implementations' derivative normalisation.
 
 \begin{table}[t]
 \centering
-\caption{Serial vs OpenMP equivalence on the DRIVE test set (fractions over all pixels).}\label{tab:correct}
+\caption{Serial vs OpenMP equivalence on the 20 DRIVE test images (fraction of identical values; $p=1$--8).}\label{tab:correct}
 \footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-Build / variant / $p$ & CLAHE equal & Mask equal & $V$ bit-equal & max $|\Delta V|$ \\
+Comparison & CLAHE & Mask & $V$ bits & max $|\Delta V|$ \\
 \midrule
-FMA, base, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
-FMA, dynamic, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
-FMA, atomic, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
-FMA, scale-parallel, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
-no-FMA, all variants, 1--8 & \ph{} & \ph{} & \ph{} & \ph{} \\
-STARE, base, 4 & \ph{} & \ph{} & \ph{} & \ph{} \\
+FMA, base & 1.0000 & 1.0000 & 1.0000 & 0 \\
+FMA, dynamic & 1.0000 & 1.0000 & 1.0000 & 0 \\
+FMA, atomic & 1.0000 & 1.0000 & 1.0000 & 0 \\
+FMA, scale-parallel & 1.0000 & 1.0000 & 1.0000 & 0 \\
+no-FMA, all variants & 1.0000 & 1.0000 & 1.0000 & 0 \\
+STARE, base, $p=4$ & 1.0000 & 1.0000 & 1.0000 & 0 \\
+\midrule
+serial FMA vs serial no-FMA & 1.0000 & 1.0000 & 0.4857 & $2.2\times10^{-3}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Segmentation accuracy}
-The grid search selected $\kappa=\ph{}$, $\beta=\ph{}$, $c=\ph{}$, $e=\ph{}$ and $\tau=\ph{}$
-(mean training Dice \ph{}). Table~\ref{tab:acc} gives the accuracy with these settings fixed.
+The grid search selected $\kappa=4$, $\beta=0.5$, $c=0.04$, $e=4$ and $\tau=0.316$, with a mean training Dice of
+0.6871. Table~\ref{tab:acc} gives the accuracy with these settings fixed. On the DRIVE test set the mean Dice is
+0.7126 (range 0.6497 for image 15 to 0.7739 for image 02). On STARE, with the DRIVE parameters unchanged, it is
+0.6540. Image im0003 scores lowest (0.4322): it is covered with many small bright lesions, and the darker
+background between neighbouring lesions forms short dark ridges that the filter accepts as vessels.
 
 \begin{table}[t]
 \centering
-\caption{Segmentation accuracy inside the FOV (mean over 20 images; Dice $\pm$ s.d.).}\label{tab:acc}
+\caption{Segmentation accuracy inside the FOV (mean over 20 images; Dice $\pm$ s.d.). Deep-model figures are as
+reported by their authors.}\label{tab:acc}
 \footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 Set & Dice & Sens. & Spec. & Acc. \\
 \midrule
-DRIVE test & \ph{} & \ph{} & \ph{} & \ph{} \\
-DRIVE train (tuning) & \ph{} & \ph{} & \ph{} & \ph{} \\
-STARE (cross-dataset) & \ph{} & \ph{} & \ph{} & \ph{} \\
+DRIVE test & 0.7126 $\pm$ 0.0304 & 0.7020 & 0.9615 & 0.9283 \\
+DRIVE train (tuning) & 0.6871 $\pm$ 0.0734 & 0.7081 & 0.9474 & 0.9170 \\
+STARE (cross-dataset) & 0.6540 $\pm$ 0.0731 & 0.7906 & 0.9284 & 0.9151 \\
 \midrule
 LightVesselNet~\cite{sobhan2026}, DRIVE & 0.8070 & 0.8189 & -- & -- \\
 LightVesselNet~\cite{sobhan2026}, STARE & 0.8072 & 0.8499 & -- & -- \\
@@ -50,20 +65,22 @@ LVS-Net~\cite{mehmood2024lvs}, DRIVE & 0.8644 & -- & -- & -- \\
 \end{tabular}
 \end{table}
 
-Figure~\ref{fig:qual} shows two test images with their vesselness maps and the errors of the final mask.
-\ph{One or two sentences on where errors concentrate: thin capillaries missed, optic-disc rim and lesions as
-false positives.}
+Figure~\ref{fig:qual} shows two test images. Most missed pixels (blue) are thin capillaries one or two pixels
+wide and the outer edges of wide vessels; false positives (orange) cluster around the optic disc and appear
+as short isolated fragments in the background.
 
 \begin{figure*}[t]
 \centering
-\phfig{0.85\textwidth}{0.3\textwidth}{fig\_qualitative.pdf}
+\includegraphics[width=0.85\textwidth]{fig_qualitative.pdf}
 \caption{DRIVE test images 01 and 02: input, vesselness $V$, and the final mask compared with the manual
 segmentation (true positives black, false positives orange, false negatives blue).}\label{fig:qual}
 \end{figure*}
 
 \subsection{Serial profile}
-Table~\ref{tab:serial} breaks the serial time per image into stages. \ph{The Gaussian-derivative passes take
-X\% and the eigenvalue/vesselness stage Y\%; CLAHE and morphology together take Z\%.}
+Table~\ref{tab:serial} breaks the serial time per image into stages. The Gaussian-derivative passes take
+72.1\% of the 108.2\,ms and the eigenvalue/vesselness stage 22.1\%, so the Frangi filter accounts for 94.2\% of
+the time. CLAHE takes 5.4\%; green-channel extraction, thresholding and morphology together take under 0.5\%.
+Run-to-run variation is small: the coefficient of variation of the total is 2.6\%.
 
 \begin{table}[t]
 \centering
@@ -73,96 +90,125 @@ X\% and the eigenvalue/vesselness stage Y\%; CLAHE and morphology together take 
 \toprule
 Stage & Mean (ms) & S.d. & Median & Share (\%) \\
 \midrule
-Green channel & \ph{} & \ph{} & \ph{} & \ph{} \\
-CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
-Gaussian derivatives & \ph{} & \ph{} & \ph{} & \ph{} \\
-Eigen + vesselness & \ph{} & \ph{} & \ph{} & \ph{} \\
-Threshold & \ph{} & \ph{} & \ph{} & \ph{} \\
-Morphology & \ph{} & \ph{} & \ph{} & \ph{} \\
+Green channel & 0.12 & 0.01 & 0.11 & 0.1 \\
+CLAHE & 5.81 & 0.15 & 5.78 & 5.4 \\
+Gaussian derivatives & 77.97 & 2.30 & 77.46 & 72.1 \\
+Eigen + vesselness & 23.93 & 0.51 & 23.84 & 22.1 \\
+Threshold & 0.16 & 0.01 & 0.16 & 0.1 \\
+Morphology & 0.21 & 0.02 & 0.21 & 0.2 \\
 \midrule
-Total & \ph{} & \ph{} & \ph{} & 100 \\
+Total & 108.20 & 2.79 & 107.63 & 100 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Thread scaling}
-Table~\ref{tab:threads} and Fig.~\ref{fig:speedup} give whole-pipeline and per-stage scaling.
-\ph{Speedup at $p=1,2,4,8$; efficiency; Karp--Flatt $e$; throughput in images/s. Note the OpenMP build at
-$p=1$ against the serial build, the small gain at $p=2$ with close binding, the jump at $p=4$, and the plateau
-or loss at $p=8$.}
+Table~\ref{tab:threads} and Figs.~\ref{fig:breakdown}--\ref{fig:kf} give the whole-pipeline and per-stage
+scaling with the default close binding. The OpenMP build at $p=1$ runs as fast as the serial build (speedup
+1.00), so the pragmas add no single-thread overhead. With two close-bound threads the speedup is only 1.07. At
+$p=4$ it rises to 2.08 (19.2 images per second), and oversubscribing to 8 threads lowers it slightly to 2.04.
+The Karp--Flatt fraction is 0.86 at $p=2$, falls to 0.31 at $p=4$ and rises again to 0.42 at $p=8$.
 
 \begin{table}[t]
 \centering
-\caption{Whole-pipeline scaling on DRIVE test images (close binding, \texttt{OMP\_PLACES=threads}).}\label{tab:threads}
+\caption{Whole-pipeline scaling on the 20 DRIVE test images (\texttt{OMP\_PROC\_BIND=close},
+\texttt{OMP\_PLACES=threads}).}\label{tab:threads}
 \footnotesize
-\begin{tabular}{@{}rrrrrr@{}}
+\begin{tabular}{@{}lrrrrr@{}}
 \toprule
 $p$ & Time (ms) & $S$ & $E$ & $e$ & Images/s \\
 \midrule
-serial & \ph{} & 1.00 & -- & -- & \ph{} \\
-1 & \ph{} & \ph{} & \ph{} & -- & \ph{} \\
-2 & \ph{} & \ph{} & \ph{} & \ph{} & \ph{} \\
-4 & \ph{} & \ph{} & \ph{} & \ph{} & \ph{} \\
-8 & \ph{} & \ph{} & \ph{} & \ph{} & \ph{} \\
+serial & 108.2 & 1.00 & -- & -- & 9.24 \\
+1 & 107.7 & 1.00 & 1.00 & -- & 9.29 \\
+2 & 100.7 & 1.07 & 0.54 & 0.861 & 9.93 \\
+4 & 52.0 & 2.08 & 0.52 & 0.307 & 19.24 \\
+8 & 53.0 & 2.04 & 0.25 & 0.417 & 18.85 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[t]
 \centering
-\phfig{\columnwidth}{0.65\columnwidth}{fig\_speedup.pdf}
-\caption{Speedup over the serial build per stage and for the whole pipeline; dashed line is ideal.}\label{fig:speedup}
+\includegraphics[width=\columnwidth]{fig_stage_breakdown.pdf}
+\caption{Mean time per DRIVE test image by stage for the serial build and for OpenMP with 1--8 threads.}\label{fig:breakdown}
 \end{figure}
 
 \begin{figure}[t]
 \centering
-\phfig{\columnwidth}{0.6\columnwidth}{fig\_karpflatt.pdf}
-\caption{Karp--Flatt serial fraction $e$ per stage.}\label{fig:kf}
+\includegraphics[width=\columnwidth]{fig_speedup.pdf}
+\caption{Speedup over the serial build per stage and for the whole pipeline (close binding); the dashed line is
+ideal linear speedup.}\label{fig:speedup}
 \end{figure}
+
+Table~\ref{tab:stagesp} shows that the stages scale differently. The eigen/vesselness stage scales best (2.43
+at $p=4$), followed by CLAHE (2.18) and the green channel (2.15); the dominant Gaussian-derivative stage
+reaches 1.99. Morphology reaches only 1.42 at $p=4$ and slows down at $p=8$ (0.59), where its Karp--Flatt
+fraction exceeds 1. Thresholding and the green channel also lose most of their gain at $p=8$
+(Fig.~\ref{fig:kf}).
 
 \begin{table}[t]
 \centering
-\caption{Per-stage speedup over the serial build.}\label{tab:stagesp}
+\caption{Per-stage speedup over the serial build (close binding).}\label{tab:stagesp}
 \footnotesize
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 Stage & $p=1$ & $p=2$ & $p=4$ & $p=8$ \\
 \midrule
-Green channel & \ph{} & \ph{} & \ph{} & \ph{} \\
-CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
-Gaussian derivatives & \ph{} & \ph{} & \ph{} & \ph{} \\
-Eigen + vesselness & \ph{} & \ph{} & \ph{} & \ph{} \\
-Threshold & \ph{} & \ph{} & \ph{} & \ph{} \\
-Morphology & \ph{} & \ph{} & \ph{} & \ph{} \\
-Total & \ph{} & \ph{} & \ph{} & \ph{} \\
+Green channel & 0.98 & 1.18 & 2.15 & 1.08 \\
+CLAHE & 0.99 & 1.13 & 2.18 & 2.14 \\
+Gaussian derivatives & 1.00 & 1.02 & 1.99 & 1.96 \\
+Eigen + vesselness & 1.02 & 1.26 & 2.43 & 2.39 \\
+Threshold & 0.98 & 1.10 & 1.69 & 1.01 \\
+Morphology & 0.93 & 0.94 & 1.42 & 0.59 \\
+\midrule
+Total & 1.00 & 1.07 & 2.08 & 2.04 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_karpflatt.pdf}
+\caption{Karp--Flatt serial fraction $e$ per stage (close binding).}\label{fig:kf}
+\end{figure}
+
 \subsection{Thread placement}
-Table~\ref{tab:affinity} repeats the sweep on five images with three placements. \ph{With one thread per
-physical core first, $p=2$ reaches X$\times$ instead of Y$\times$; at $p=4$ all placements coincide because every
-logical CPU is used.}
+Table~\ref{tab:affinity} and Fig.~\ref{fig:affinity} repeat the sweep on five test images with three
+placements. With close binding, libgomp lists the hardware threads core by core, so two threads run on the two
+hyperthreads of core 0 and reach only 1.08$\times$. Placing one thread per physical core
+(\texttt{spread}, \texttt{cores}) gives 1.98$\times$ at $p=2$, an efficiency of 0.99; leaving the threads
+unbound gives the same result because the Linux scheduler also spreads them. At $p=4$ every logical CPU is busy
+and the placements differ by at most 4\%. Going from two threads on two cores (54.9\,ms) to four threads on two
+cores (51.2\,ms with close binding) gains 7\%, which is the whole Hyper-Threading benefit for this pipeline.
 
 \begin{table}[t]
 \centering
-\caption{Effect of thread placement (5 DRIVE test images).}\label{tab:affinity}
+\caption{Effect of thread placement on whole-pipeline speedup (5 DRIVE test images).}\label{tab:affinity}
 \footnotesize
 \begin{tabular}{@{}lrrr@{}}
 \toprule
 Placement & $S(2)$ & $S(4)$ & $S(8)$ \\
 \midrule
-close, threads & \ph{} & \ph{} & \ph{} \\
-spread, cores & \ph{} & \ph{} & \ph{} \\
-no binding & \ph{} & \ph{} & \ph{} \\
+close, \texttt{threads} & 1.08 & 2.12 & 2.06 \\
+spread, \texttt{cores} & 1.98 & 2.04 & 2.03 \\
+no binding & 1.98 & 2.12 & 1.98 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_affinity.pdf}
+\caption{Whole-pipeline speedup for three thread placements. The dashed line is the ideal for two physical cores.}\label{fig:affinity}
+\end{figure}
+
 \subsection{Alternative OpenMP designs}
-Table~\ref{tab:variants} compares each ablation with the base design on the stage it changes.
-\ph{Dynamic scheduling of the 64 CLAHE tiles costs/gains X\%; atomic histograms are Y$\times$ slower; running
-the scales concurrently is Z$\times$ slower at $p=4$.}
+Table~\ref{tab:variants} compares each ablation with the base design on the stage it changes (5 test images).
+Dynamic scheduling of the 64 CLAHE tiles makes no measurable difference (ratios 0.99--1.00). Building the
+histograms pixel-parallel with atomic increments makes CLAHE 1.53$\times$ slower even on one thread, where the
+atomics cost time without any contention, and 1.68--1.70$\times$ slower at $p=4$--8. Running the four Frangi
+scales concurrently matches the base design at $p\le2$ but is 1.17$\times$ slower at $p=4$ and 1.21$\times$ at
+$p=8$.
 
 \begin{table}[t]
 \centering
@@ -172,40 +218,42 @@ the scales concurrently is Z$\times$ slower at $p=4$.}
 \toprule
 Variant & Stage & $p=1$ & $p=2$ & $p=4$ & $p=8$ \\
 \midrule
-dynamic tiles & CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
-atomic histogram & CLAHE & \ph{} & \ph{} & \ph{} & \ph{} \\
-scale-parallel & Frangi & \ph{} & \ph{} & \ph{} & \ph{} \\
+dynamic tiles & CLAHE & 0.99 & 1.00 & 0.99 & 1.00 \\
+atomic histogram & CLAHE & 1.53 & 1.67 & 1.68 & 1.70 \\
+scale-parallel & Frangi & 1.00 & 1.01 & 1.17 & 1.21 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Resolution scaling}
-Table~\ref{tab:scaling} and Fig.~\ref{fig:scaling} show how speedup changes with image size.
-\ph{Serial time grows from X ms at 0.33 MP to Y s at 21.1 MP; speedup at the best thread count stays between
-A and B; throughput in megapixels per second.}
+Table~\ref{tab:scaling} and Fig.~\ref{fig:scaling} show how the speedup changes with image size. Serial time grows
+from 108.9\,ms at 0.33 megapixels to 8.67\,s at 21.1 megapixels. The serial cost per megapixel rises from 330\,ms
+to 411\,ms (24\%) at the largest size. The 4-thread speedup stays between 2.13 and 2.31 across all four sizes, and
+the 2-thread close-bound speedup rises from 1.08 to 1.16 above native size.
 
 \begin{table}[t]
 \centering
-\caption{Resolution scaling (3 DRIVE test images, best thread count).}\label{tab:scaling}
+\caption{Resolution scaling (3 DRIVE test images, $p=4$, close binding).}\label{tab:scaling}
 \footnotesize
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
 Scale & MP & Serial (ms) & OpenMP (ms) & $S$ & MP/s \\
 \midrule
-1$\times$ & 0.33 & \ph{} & \ph{} & \ph{} & \ph{} \\
-2$\times$ & 1.32 & \ph{} & \ph{} & \ph{} & \ph{} \\
-4$\times$ & 5.28 & \ph{} & \ph{} & \ph{} & \ph{} \\
-8$\times$ & 21.12 & \ph{} & \ph{} & \ph{} & \ph{} \\
+1$\times$ & 0.33 & 108.9 & 51.1 & 2.13 & 6.45 \\
+2$\times$ & 1.32 & 463.6 & 200.4 & 2.31 & 6.59 \\
+4$\times$ & 5.28 & 1853.6 & 807.1 & 2.30 & 6.54 \\
+8$\times$ & 21.12 & 8669.4 & 3804.5 & 2.28 & 5.55 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[t]
 \centering
-\phfig{\columnwidth}{0.65\columnwidth}{fig\_scaling.pdf}
-\caption{Speedup over the serial build against image size for each thread count.}\label{fig:scaling}
+\includegraphics[width=\columnwidth]{fig_scaling.pdf}
+\caption{Speedup over the serial build against image size for each thread count (close binding).}\label{fig:scaling}
 \end{figure}
 
 \subsection{Cross-dataset timing}
-On the 20 STARE images ($700\times605$) the serial pipeline takes \ph{} ms per image and reaches
-\ph{}$\times$ at $p=4$, \ph{consistent with / different from} DRIVE.
+On the 20 STARE images ($700\times605$, 0.42 megapixels) the serial pipeline takes 138.6\,ms per image, or
+327\,ms per megapixel, the same per-pixel cost as DRIVE. The speedups are 1.08, 2.09 and 2.05 at $p=2$, 4 and
+8, matching DRIVE within 0.01, so the parallel behaviour depends on image size rather than on image content.

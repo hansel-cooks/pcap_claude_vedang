@@ -3,15 +3,15 @@ Diabetic retinopathy screening depends on fast and reliable segmentation of reti
 multi-scale Frangi vesselness filter is a training-free classical method whose cost grows with image resolution
 and with the number of scales. We implement a complete pipeline (green-channel extraction, CLAHE, multi-scale
 Frangi filtering, thresholding and morphological clean-up) in C, parallelise every stage with OpenMP, and
-compare it stage by stage with a pragma-free serial build of the same code on a 2-core/4-thread cloud CPU.
-Serial and OpenMP outputs are bit-identical on every DRIVE and STARE image for all thread counts and design
-variants. With parameters tuned on the DRIVE training images only, the pipeline reaches a mean Dice of
-\ph{DICE-DRIVE} on the DRIVE test set and \ph{DICE-STARE} on STARE. The whole pipeline speeds up by
-\ph{S4}$\times$ with 4 threads (efficiency \ph{E4}), while 2 threads placed on the two hyperthreads of one core
-give only \ph{S2-close}$\times$ against \ph{S2-spread}$\times$ when spread over both cores. The Gaussian-derivative
-stage dominates serial time (\ph{GAUSS-SHARE}\%); morphology scales worst. Owner-computes tile histograms beat
-atomic histograms in CLAHE by \ph{ATOMIC-RATIO}$\times$, and running the four Frangi scales concurrently is
-\ph{SCALEPAR-RATIO}$\times$ slower than parallelising inside each scale because of load imbalance. Speedup stays
-between \ph{SMIN} and \ph{SMAX} from 0.33 to 21.1 megapixels. We report Karp--Flatt serial fractions per
-stage and throughput in images per second, and place the accuracy beside published lightweight deep models.
+compare it stage by stage with a pragma-free serial build of the same code on a 2-core, 4-thread cloud CPU.
+Serial and OpenMP outputs are bit-identical on all 20 DRIVE test images for every thread count and design
+variant. With parameters tuned on the DRIVE training images only, the pipeline reaches a mean Dice of 0.713 on
+the DRIVE test set and 0.654 on STARE. The Gaussian-derivative passes take 72\% of the 108\,ms serial time.
+Four threads speed the whole pipeline up by 2.08$\times$ (19.2 images per second), but placement matters: two
+threads on the two hyperthreads of one core give 1.08$\times$, against 1.98$\times$ when they are spread over
+both cores, and Hyper-Threading adds only 7\%. Owner-computes tile histograms are 1.68$\times$ faster than atomic
+histograms in CLAHE, and running the four Frangi scales concurrently is 1.17$\times$ slower than parallelising
+inside each scale because of load imbalance. The 4-thread speedup stays between 2.13 and 2.31 from 0.33 to 21.1
+megapixels. We report per-stage Karp--Flatt serial fractions and throughput, and place the accuracy beside
+published lightweight deep models.
 \end{abstract}

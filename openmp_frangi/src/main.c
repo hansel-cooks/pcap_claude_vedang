@@ -8,6 +8,7 @@
  *                  [--warm W] [--reps R] [--variant base|dynamic|atomic|scalepar] [--append]
  *   frangi dump    <kind> <root> <params> <out_dir> [--nt N] [--images N]
  *   frangi compare <dirA> <dirB>
+ *   frangi stages  <kind> <root> <params> <out_dir> [--images N]   (PNG of every intermediate stage)
  *
  * kind: drive-train | drive-test | stare
  */
@@ -516,6 +517,77 @@ static int cmd_dump(int argc, char **argv)
     return 0;
 }
 
+static void write_scaled(const char *path, const float *V, unsigned char *tmp, size_t n, int w, int h)
+{
+    float vmax = 0;
+    for (size_t k = 0; k < n; k++)
+        vmax = V[k] > vmax ? V[k] : vmax;
+    for (size_t k = 0; k < n; k++)
+        tmp[k] = (unsigned char)(vmax > 0 ? 255.f * sqrtf(V[k] / vmax) : 0);
+    write_png_gray(path, tmp, w, h);
+}
+
+/* Writes every intermediate image of the pipeline as PNG (for figures and the demo notebook). */
+static int cmd_stages(int argc, char **argv)
+{
+    if (argc < 6)
+        return 2;
+    const char *kind = argv[2], *root = argv[3], *pp = argv[4], *dir = argv[5];
+    Params p;
+    if (load_params(pp, &p))
+        return 1;
+    p.nt = default_nt();
+    Sample *S;
+    int n = load_dataset(kind, root, atoi(opt(argc, argv, "--images", "1")), &S);
+    if (n <= 0)
+        return 1;
+    char path[1100];
+    for (int i = 0; i < n; i++) {
+        int w = S[i].rgb.w, h = S[i].rgb.h;
+        size_t np = (size_t)w * h;
+        Work W;
+        work_alloc(&W, w, h, &p);
+        unsigned char *fe = eroded_fov(&S[i]);
+        unsigned char *out = (unsigned char *)malloc(np);
+        stage_green(S[i].rgb.d, W.g, np, p.nt);
+        snprintf(path, sizeof path, "%s/%s_1_green.png", dir, S[i].name);
+        write_png_gray(path, W.g, w, h);
+        stage_clahe(W.g, W.eq, w, h, &p);
+        snprintf(path, sizeof path, "%s/%s_2_clahe.png", dir, S[i].name);
+        write_png_gray(path, W.eq, w, h);
+        /* each scale on its own */
+        for (int s = 0; s < p.nsig; s++) {
+            Params q = p;
+            q.nsig = 1;
+            q.sig[0] = p.sig[s];
+            Work Ws;
+            work_alloc(&Ws, w, h, &q);
+            stage_frangi(W.eq, &Ws, &q, NULL);
+            snprintf(path, sizeof path, "%s/%s_3_vesselness_sigma%g.png", dir, S[i].name, p.sig[s]);
+            write_scaled(path, Ws.V, out, np, w, h);
+            work_free(&Ws);
+        }
+        stage_frangi(W.eq, &W, &p, NULL);
+        snprintf(path, sizeof path, "%s/%s_3_vesselness_max.png", dir, S[i].name);
+        write_scaled(path, W.V, out, np, w, h);
+        stage_threshold(W.V, W.mask, fe, np, p.thr, p.nt);
+        for (size_t k = 0; k < np; k++)
+            out[k] = W.mask[k] ? 255 : 0;
+        snprintf(path, sizeof path, "%s/%s_4_threshold.png", dir, S[i].name);
+        write_png_gray(path, out, w, h);
+        stage_morph(W.mask, W.tmp, w, h, p.nt);
+        for (size_t k = 0; k < np; k++)
+            out[k] = W.mask[k] ? 255 : 0;
+        snprintf(path, sizeof path, "%s/%s_5_final.png", dir, S[i].name);
+        write_png_gray(path, out, w, h);
+        free(out);
+        free(fe);
+        work_free(&W);
+    }
+    free_dataset(S, n);
+    return 0;
+}
+
 static void *slurp(const char *path, size_t want)
 {
     FILE *f = fopen(path, "rb");
@@ -607,6 +679,8 @@ int main(int argc, char **argv)
         rc = cmd_dump(argc, argv);
     else if (!strcmp(c, "compare"))
         rc = cmd_compare(argc, argv);
+    else if (!strcmp(c, "stages"))
+        rc = cmd_stages(argc, argv);
     else if (!strcmp(c, "green") && argc >= 4) {
         /* decoder check: write the green channel of an image as PGM */
         ImgU8 im;
