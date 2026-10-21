@@ -12,7 +12,7 @@ DRIVE and STARE datasets. All timing runs are done on a Kaggle CPU VM (2 physica
 | `data/drive/` | DRIVE training + test images, FOV masks and first-observer manual segmentations. |
 | `data/stare/` | STARE 20 images and Hoover's hand labels. |
 | `runs/pilot/` | Two-image pilot run used to debug the harness (not reported in the paper). |
-| `runs/full/` | Full Kaggle run: CSV logs, masks, analysis tables and figures (added when the run finishes). |
+| `runs/full/` | Full Kaggle run: CSV logs, masks, analysis tables and figures used in the paper. |
 | `kaggle/` | Kaggle dataset and kernel metadata used to run the experiments. |
 | `docs/` | Project synopsis and literature survey (Submission 1). |
 | `.claude/skills/`, `third_party/academic-research-skills/` | Academic Research Skills (Imbad0202, CC BY-NC 4.0) used for the paper workflow. |
