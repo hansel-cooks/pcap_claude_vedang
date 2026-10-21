@@ -295,97 +295,160 @@ show(imgs, titles, ncol=3, size=4.2)
 md(r"""
 ## 7. Correctness: serial and OpenMP give identical output
 
-For each thread count the OpenMP build writes the CLAHE output, the vesselness map V (float32) and the mask; they are
-compared byte by byte with the serial build. Every output element is computed by exactly one thread in the same
-order, so even floating-point results match bit for bit.
+Every OpenMP configuration (four designs, each at every thread count) writes the CLAHE output, the vesselness map
+V (float32) and the mask, which are compared byte for byte with the serial build. Each output element is computed
+by exactly one thread, in the serial summation order, so OpenMP changes *when* values are computed but never
+*how*. For contrast, the same comparison is made between the serial build and a serial build with floating-point
+contraction (FMA) disabled. That one change in the compiler's arithmetic *does* alter V.
 """)
 
 code(r"""
+run(f"cd {CODE} && make OPT='-O3 -march=native' FPFLAGS=-ffp-contract=off BIN=bin_nofma >/dev/null", quiet=True)
 VD = f"{OUT}/verify"; NV = 5
-ref = f"{VD}/serial"; os.makedirs(ref, exist_ok=True)
-run(f"{BIN}/frangi_serial dump drive-test {DRIVE} {PARAMS} {ref} --images {NV}", quiet=True)
-rows = []
-for variant in ["base", "dynamic", "atomic", "scalepar"]:
-    for nt in sorted({1, 2, 4, 2 * NP}):
-        dd = f"{VD}/{variant}_{nt}"; os.makedirs(dd, exist_ok=True)
-        run(f"{BIN}/frangi_omp dump drive-test {DRIVE} {PARAMS} {dd} --nt {nt} --variant {variant} --images {NV}", quiet=True)
-        last = run(f"{BIN}/frangi_serial compare {ref} {dd}", quiet=True).strip().splitlines()[-1].split(",")
-        rows.append({"variant": variant, "threads": nt, "CLAHE identical": float(last[1]), "mask identical": float(last[2]),
-                     "V bit-identical": float(last[3]), "max |dV|": float(last[4])})
-display(pd.DataFrame(rows))
+def dump(binary, d, extra=""):
+    os.makedirs(d, exist_ok=True)
+    run(f"{binary} dump drive-test {DRIVE} {PARAMS} {d} --images {NV} {extra}", quiet=True)
+def compare(a, b):
+    last = run(f"{BIN}/frangi_serial compare {a} {b}", quiet=True).strip().splitlines()[-1].split(",")
+    return float(last[1]), float(last[2]), float(last[3]), float(last[4])
+dump(f"{BIN}/frangi_serial", f"{VD}/serial")
+dump(f"{CODE}/bin_nofma/frangi_serial", f"{VD}/serial_nofma")
+configs = [(v, nt) for v in ["base", "dynamic", "atomic", "scalepar"] for nt in sorted({1, 2, 4, 2 * NP})]
+bad = []
+for v, nt in configs:
+    d = f"{VD}/{v}_{nt}"; dump(f"{BIN}/frangi_omp", d, f"--nt {nt} --variant {v}")
+    r = compare(f"{VD}/serial", d)
+    if r[:3] != (1.0, 1.0, 1.0): bad.append((v, nt, r))
+fma = compare(f"{VD}/serial", f"{VD}/serial_nofma")
+npx = NV * 565 * 584
+display(Markdown(
+    f"**Serial vs OpenMP:** {len(configs) - len(bad)} of {len(configs)} configurations are bit-identical "
+    f"({len(configs) * npx / 1e6:.1f} million pixel values compared for each of CLAHE, V and the mask).  \n"
+    f"**Serial FMA vs serial no-FMA:** only {100 * fma[2]:.1f}% of V values are bit-identical "
+    f"(max |dV| = {fma[3]:.1e}), yet {100 * fma[1]:.2f}% of mask pixels agree."))
+if bad: display(pd.DataFrame(bad, columns=["variant", "threads", "result"]))
+
+name = "01_test"
+rd = lambda d: np.fromfile(f"{VD}/{d}/{name}.V.f32", np.float32).reshape(584, 565)
+V0, Vomp, Vnf = rd("serial"), rd(f"base_{max(n for _, n in configs)}"), rd("serial_nofma")
+fig, axs = plt.subplots(1, 3, figsize=(15, 4.6))
+axs[0].imshow(np.sqrt(V0 / V0.max()), cmap="gray"); axs[0].set_title("V, serial build")
+vmax = np.abs(Vnf - V0).max()
+for ax, D, t in [(axs[1], np.abs(Vomp - V0), f"|V(OpenMP, p={max(n for _, n in configs)}) - V(serial)|"),
+                 (axs[2], np.abs(Vnf - V0), "|V(serial, no FMA) - V(serial)|")]:
+    im = ax.imshow(D, cmap="magma", vmin=0, vmax=vmax); ax.set_title(f"{t}\nmax = {D.max():.1e}")
+for a in axs: a.axis("off")
+fig.colorbar(im, ax=axs[1:], fraction=.025, pad=.02, label="|dV|")
+plt.show()
 """)
 
 md(r"""
 ## 8. Execution time of every stage at every thread count (live, on this VM)
 
-Each configuration runs a few untimed warm-up iterations, then timed iterations per image, with per-stage timers
-inside the C code (`omp_get_wtime`). File I/O and decoding are excluded. Increase `REPS`/`NIMG` for tighter numbers.
+The C code times each stage with `omp_get_wtime` (file I/O and decoding excluded). To keep Colab's background
+activity and slow clock drift from favouring one build, the serial and OpenMP runs are **interleaved** over several
+rounds, and the **median** of all runs is reported. Raise `ROUNDS`, `REPS` or `NIMG` for tighter numbers.
 
 * **speedup** S(p) = T_serial / T(p), against the pragma-free serial build
 * **efficiency** E = S / p
-* **Karp-Flatt serial fraction** e = (1/S - 1/p) / (1 - 1/p): if e grows with p, overhead (not a fixed serial part) limits scaling
+* **Karp-Flatt serial fraction** e = (1/S - 1/p) / (1 - 1/p), shown only where S > 1; a rising e means overhead, not a fixed serial part, limits scaling
 """)
 
 code(r"""
-NIMG, WARM, REPS = 5, 2, 10
+NIMG, WARM, REPS, ROUNDS = 5, 2, 4, 3
 THREADS = sorted({1, 2, 4, NP, 2 * NP})
 TL = ",".join(map(str, THREADS))
-BIND = {"OMP_PROC_BIND": "close", "OMP_PLACES": "threads"}
-run(f"{BIN}/frangi_serial bench drive-test {DRIVE} {PARAMS} {OUT}/b_serial.csv --nt 1 --warm {WARM} --reps {REPS} --images {NIMG}", quiet=True)
-run(f"{BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {OUT}/b_omp.csv --nt {TL} --warm {WARM} --reps {REPS} --images {NIMG}", env=BIND, quiet=True)
+topo = run("lscpu -p=CORE,SOCKET | grep -v '^#'", quiet=True).split()
+PHYS = len(set(topo))
+quota = run("cat /sys/fs/cgroup/cpu.max 2>/dev/null || true", quiet=True).split()
+CPU_QUOTA = float(quota[0]) / float(quota[1]) if len(quota) == 2 and quota[0] != "max" else None
+for f in ["b_serial.csv", "b_omp.csv"]:
+    if os.path.exists(f"{OUT}/{f}"): os.remove(f"{OUT}/{f}")
+for r in range(ROUNDS):   # interleave the builds
+    run(f"{BIN}/frangi_serial bench drive-test {DRIVE} {PARAMS} {OUT}/b_serial.csv --nt 1 --warm {WARM} --reps {REPS} --images {NIMG} --append", quiet=True)
+    run(f"{BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {OUT}/b_omp.csv --nt {TL} --warm {WARM} --reps {REPS} --images {NIMG} --append", quiet=True)
 ser, omp = pd.read_csv(f"{OUT}/b_serial.csv"), pd.read_csv(f"{OUT}/b_omp.csv")
-print(len(ser), "serial and", len(omp), "OpenMP timed runs")
+display(Markdown(
+    f"**This VM:** {PHYS} physical core(s), {NP} logical CPUs"
+    + (f", CPU quota {CPU_QUOTA:g}" if CPU_QUOTA else "") + f". {len(ser)} serial and {len(omp)} OpenMP timed runs.  \n"
+    + (f"With a single physical core the two logical CPUs share one set of execution units, so the best possible "
+       f"speedup is only Hyper-Threading's gain (typically 0-15%), and threads beyond {NP} only add switching overhead. "
+       f"Expect speedups near 1 here; section 9 shows the same experiment on a 2-core machine."
+       if PHYS == 1 else f"The best possible speedup is about {PHYS}x, plus a little from Hyper-Threading.")))
 """)
 
 code(r"""
-def kf(S, p): return (1 / S - 1 / p) / (1 - 1 / p) if p > 1 else np.nan
+def kf(S, p): return (1 / S - 1 / p) / (1 - 1 / p) if p > 1 and S > 1 else np.nan
 
-def stage_table(ser, omp):
+def stage_table(ser, omp, stat="median"):
     cols = STAGES + ["total"]
-    t = pd.DataFrame({"serial": ser[cols].mean()})
-    for p, g in omp.groupby("threads"): t[f"p={p}"] = g[cols].mean()
+    t = pd.DataFrame({"serial": getattr(ser[cols], stat)()})
+    for p, g in omp.groupby("threads"): t[p] = getattr(g[cols], stat)()
     return t * 1e3   # ms
 
-def report(ser, omp, title):
-    T = stage_table(ser, omp); P = sorted(omp.threads.unique())
-    S = T.iloc[:, 1:].rdiv(T["serial"], axis=0); S.columns = P
-    display(Markdown(f"### {title}: mean time per image (ms)"))
-    display(T.rename(index=LABEL).style.format("{:.2f}").background_gradient(axis=None, cmap="Blues"))
-    whole = pd.DataFrame({"threads": P, "time (ms)": [T.loc["total", f"p={p}"] for p in P],
-                          "speedup": S.loc["total"].values, "efficiency": S.loc["total"].values / np.array(P),
+def report(ser, omp, title, phys, ncpu, stat="median"):
+    T = stage_table(ser, omp, stat); P = sorted(omp.threads.unique())
+    S = T[P].rdiv(T["serial"], axis=0)
+    display(Markdown(f"### {title}: {stat} time per image (ms)"))
+    Tn = T.rename(index=LABEL); Tn.columns = ["serial"] + [f"p={p}" for p in P]
+    display(Tn.style.format("{:.2f}"))
+    whole = pd.DataFrame({"threads": P, "time (ms)": T.loc["total", P].values, "speedup": S.loc["total"].values,
+                          "efficiency": S.loc["total"].values / np.array(P),
                           "Karp-Flatt e": [kf(S.loc["total", p], p) for p in P],
-                          "images/s": [1e3 / T.loc["total", f"p={p}"] for p in P]})
-    display(whole.style.format({"time (ms)": "{:.1f}", "speedup": "{:.2f}", "efficiency": "{:.2f}", "Karp-Flatt e": "{:.3f}", "images/s": "{:.1f}"}))
+                          "images/s": 1e3 / T.loc["total", P].values})
+    display(whole.style.format({"time (ms)": "{:.1f}", "speedup": "{:.2f}", "efficiency": "{:.2f}",
+                                "Karp-Flatt e": lambda v: "n/a (no speedup)" if pd.isna(v) else f"{v:.3f}", "images/s": "{:.1f}"}))
 
-    fig, axs = plt.subplots(1, 3, figsize=(17, 4.2))
-    labels = ["serial"] + [str(p) for p in P]; bottom = np.zeros(len(labels))
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(15, 4.8), gridspec_kw={"width_ratios": [1.15, 1]})
+    rows = ["serial"] + [f"{p} thread" + ("s" if p > 1 else "") for p in P]
+    vals = [T["serial"]] + [T[p] for p in P]
+    left = np.zeros(len(rows))
     for s in STAGES:
-        h = T.loc[s].values; axs[0].bar(labels, h, bottom=bottom, color=COL[s], label=LABEL[s], edgecolor="white"); bottom += h
-    for i, b in enumerate(bottom): axs[0].text(i, b * 1.01, f"{b:.0f}", ha="center", va="bottom", fontsize=9)
-    axs[0].set_title("time per image by stage"); axs[0].set_xlabel("threads"); axs[0].set_ylabel("ms"); axs[0].legend(fontsize=8, frameon=False)
-    axs[1].plot(P, P, "--", color="#52514e", lw=1, label="ideal")
-    for s in ["clahe", "gauss", "vess", "morph", "total"]:
-        axs[1].plot(P, S.loc[s].values, "o-", color=COL[s], lw=2.4 if s == "total" else 1.6, label=LABEL[s])
-    axs[1].set_xscale("log", base=2); axs[1].set_xticks(P); axs[1].set_xticklabels(P); axs[1].set_ylim(0, max(4.2, S.values.max() * 1.15))
-    axs[1].set_title("speedup vs serial"); axs[1].set_xlabel("threads"); axs[1].legend(fontsize=8, frameon=False)
-    im = axs[2].imshow(S.values, cmap="Blues", aspect="auto", vmin=0)
-    axs[2].set_xticks(range(len(P))); axs[2].set_xticklabels(P); axs[2].set_yticks(range(len(S))); axs[2].set_yticklabels([LABEL[i] for i in S.index])
-    for i in range(S.shape[0]):
-        for j in range(S.shape[1]):
-            axs[2].text(j, i, f"{S.values[i, j]:.2f}", ha="center", va="center", color="white" if S.values[i, j] > S.values.max() * .6 else "#0b0b0b", fontsize=9)
-    axs[2].set_title("speedup heatmap (stage x threads)"); axs[2].set_xlabel("threads"); axs[2].grid(False)
+        w = np.array([v[s] for v in vals])
+        a0.barh(rows, w, left=left, color=COL[s], label=LABEL[s], edgecolor="white", height=.62); left += w
+    for i, x in enumerate(left):
+        a0.text(x + left.max() * .01, i, f"{x:.0f} ms", va="center", fontsize=9)
+    a0.invert_yaxis(); a0.set_xlim(0, left.max() * 1.15); a0.set_xlabel("time per image (ms)")
+    a0.set_title("where the time goes", loc="left"); a0.grid(axis="y", visible=False)
+    a0.legend(ncol=3, frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(.5, -.14))
+
+    ideal = [min(p, phys) for p in P]
+    a1.axhline(1, color="#52514e", lw=1)
+    a1.plot(P, ideal, "--", color="#52514e", lw=1.2, label=f"ideal on {phys} physical core" + ("s" if phys > 1 else ""))
+    if max(P) > ncpu:
+        a1.axvspan(ncpu * 1.06, max(P) * 1.3, color="#e4e3df", alpha=.6, lw=0)
+        a1.text(max(P), 0.08, "oversubscribed", ha="right", fontsize=8, color="#52514e")
+    for s in ["clahe", "gauss", "vess", "morph"]:
+        a1.plot(P, S.loc[s].values, "o-", color=COL[s], lw=1.4, ms=4, label=LABEL[s])
+    a1.plot(P, S.loc["total"].values, "o-", color=COL["total"], lw=2.8, ms=6, label="whole pipeline")
+    for p, v in zip(P, S.loc["total"].values):
+        a1.annotate(f"{v:.2f}x", (p, v), textcoords="offset points", xytext=(0, 9), ha="center", fontsize=9, weight="bold")
+    a1.set_xscale("log", base=2); a1.set_xticks(P); a1.set_xticklabels(P); a1.set_xlim(min(P) / 1.3, max(P) * 1.3)
+    a1.set_ylim(0, max(phys + .6, S.values.max() * 1.2)); a1.set_xlabel("OpenMP threads"); a1.set_ylabel("speedup vs serial")
+    a1.set_title("speedup by stage", loc="left")
+    a1.legend(ncol=3, frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(.5, -.14))
     plt.tight_layout(); plt.show()
 
-    fig, axs = plt.subplots(1, 2, figsize=(12, 3.6))
-    for s in ["clahe", "gauss", "vess", "morph", "total"]:
-        axs[0].plot(P[1:], [kf(S.loc[s, p], p) for p in P[1:]], "o-", color=COL[s], label=LABEL[s])
-    axs[0].set_xscale("log", base=2); axs[0].set_xticks(P[1:]); axs[0].set_xticklabels(P[1:]); axs[0].set_title("Karp-Flatt serial fraction"); axs[0].legend(fontsize=8, frameon=False)
-    axs[1].bar(labels, [1e3 / T.loc["total", "serial"]] + [1e3 / T.loc["total", f"p={p}"] for p in P], color="#2a78d6")
-    axs[1].set_title("throughput (images / second)"); axs[1].set_xlabel("threads")
+    from matplotlib.colors import TwoSlopeNorm
+    fig, (h0, h1) = plt.subplots(1, 2, figsize=(15, 3.9), gridspec_kw={"width_ratios": [1.3, 1]})
+    hi = max(S.values.max(), 1.05); lo = min(S.values.min(), .95)
+    im = h0.imshow(S.values, cmap="RdBu", norm=TwoSlopeNorm(vmin=lo, vcenter=1, vmax=hi), aspect="auto")
+    h0.set_xticks(range(len(P))); h0.set_xticklabels([f"p={p}" for p in P])
+    h0.set_yticks(range(len(S))); h0.set_yticklabels([LABEL[i] for i in S.index])
+    for i in range(S.shape[0]):
+        for j in range(S.shape[1]):
+            v = S.values[i, j]; strong = abs(v - 1) > .45 * max(hi - 1, 1 - lo)
+            h0.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=9, color="white" if strong else "#0b0b0b")
+    h0.grid(False); h0.set_title("speedup per stage (blue = faster, red = slower than serial)", loc="left")
+    fig.colorbar(im, ax=h0, fraction=.03, pad=.02)
+    tp = [1e3 / T.loc["total", "serial"]] + list(1e3 / T.loc["total", P].values)
+    bars = h1.bar(["serial"] + [f"p={p}" for p in P], tp, color=["#52514e"] + ["#2a78d6"] * len(P), width=.6)
+    for b, v in zip(bars, tp): h1.text(b.get_x() + b.get_width() / 2, v * 1.01, f"{v:.1f}", ha="center", va="bottom", fontsize=9)
+    h1.set_ylim(0, max(tp) * 1.18); h1.set_ylabel("images per second"); h1.set_title("throughput", loc="left")
     plt.tight_layout(); plt.show()
     return T, S
 
-T_live, S_live = report(ser, omp, "This Colab VM")
+T_live, S_live = report(ser, omp, "This Colab VM", PHYS, NP)
 """)
 
 md(r"""
@@ -393,24 +456,32 @@ md(r"""
 
 With `OMP_PLACES=threads OMP_PROC_BIND=close`, libgomp lists the hardware threads core by core, so two threads go
 onto the **two hyperthreads of one core**. `spread` over `cores` puts them on different physical cores. On a VM with a
-single physical core all placements behave the same.
+single physical core every placement uses the same core, so the three lines should coincide here; on the paper's
+2-core machine close binding at p=2 gave 1.08x against 1.98x for spread (section 9).
 """)
 
 code(r"""
-place = {"close, threads": BIND, "spread, cores": {"OMP_PLACES": "cores", "OMP_PROC_BIND": "spread"}, "no binding": {"OMP_PROC_BIND": "false"}}
+place = {"close, threads": "OMP_PLACES=threads OMP_PROC_BIND=close",
+         "spread, cores": "OMP_PLACES=cores OMP_PROC_BIND=spread",
+         "no binding": "OMP_PROC_BIND=false"}
 rows = []
-for lab, env in place.items():
-    f = f"{OUT}/b_place_{lab.replace(', ', '_')}.csv"
-    e = {k: v for k, v in env.items()}
-    run(f"env -u OMP_PLACES -u OMP_PROC_BIND {' '.join(k + '=' + v for k, v in e.items())} {BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {f} --nt {TL} --warm {WARM} --reps {REPS} --images {NIMG}", quiet=True)
-    d = pd.read_csv(f)
-    for p, g in d.groupby("threads"): rows.append({"placement": lab, "threads": p, "speedup": ser.total.mean() / g.total.mean()})
+for i, (lab, envs) in enumerate(place.items()):
+    f = f"{OUT}/b_place_{i}.csv"
+    if os.path.exists(f): os.remove(f)
+    run(f"env -u OMP_PLACES -u OMP_PROC_BIND {envs} {BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {f} --nt {TL} --warm {WARM} --reps {REPS} --images {NIMG}", quiet=True)
+    for p, g in pd.read_csv(f).groupby("threads"):
+        rows.append({"placement": lab, "threads": p, "speedup": ser.total.median() / g.total.median()})
 pl = pd.DataFrame(rows)
-fig, ax = plt.subplots(figsize=(6.5, 3.8))
+fig, ax = plt.subplots(figsize=(7.5, 4))
+ax.axhline(1, color="#52514e", lw=1)
+ax.plot(THREADS, [min(p, PHYS) for p in THREADS], "--", color="#52514e", lw=1.2, label=f"ideal on {PHYS} core(s)")
 for (lab, g), c in zip(pl.groupby("placement", sort=False), ["#2a78d6", "#eb6834", "#1baf7a"]):
-    ax.plot(g.threads, g.speedup, "o-", color=c, label=lab)
-ax.set_xscale("log", base=2); ax.set_xticks(THREADS); ax.set_xticklabels(THREADS); ax.set_xlabel("threads"); ax.set_ylabel("speedup vs serial"); ax.legend(frameon=False)
-plt.show(); display(pl.pivot(index="placement", columns="threads", values="speedup").round(2))
+    ax.plot(g.threads, g.speedup, "o-", color=c, label=lab, lw=2)
+ax.set_xscale("log", base=2); ax.set_xticks(THREADS); ax.set_xticklabels(THREADS); ax.set_ylim(0, max(PHYS + .6, pl.speedup.max() * 1.2))
+ax.set_xlabel("OpenMP threads"); ax.set_ylabel("speedup vs serial"); ax.legend(frameon=False, ncol=2, loc="upper center", bbox_to_anchor=(.5, -.16))
+plt.tight_layout(); plt.show()
+t = pl.pivot(index="placement", columns="threads", values="speedup"); t.columns = [f"p={c}" for c in t.columns]
+display(t.style.format("{:.2f}"))
 """)
 
 md(r"""
@@ -419,24 +490,32 @@ md(r"""
 * **dynamic**: CLAHE tile loop with `schedule(dynamic,1)` instead of `static`
 * **atomic**: CLAHE histograms built pixel-parallel with `#pragma omp atomic` instead of one thread per tile
 * **scalepar**: the four Frangi scales run concurrently (one thread each) instead of parallelising inside each scale
+
+Bars show the variant's stage time divided by the base design's; above 1 means the variant is slower.
 """)
 
 code(r"""
 rows = []
 for v, stage in [("dynamic", "clahe"), ("atomic", "clahe"), ("scalepar", "frangi")]:
-    run(f"{BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {OUT}/b_{v}.csv --nt {TL} --warm {WARM} --reps {REPS} --images {NIMG} --variant {v}", env=BIND, quiet=True)
-    d = pd.read_csv(f"{OUT}/b_{v}.csv")
+    f = f"{OUT}/b_{v}.csv"
+    if os.path.exists(f): os.remove(f)
+    run(f"{BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {f} --nt {TL} --warm {WARM} --reps {REPS} --images {NIMG} --variant {v}", quiet=True)
+    d = pd.read_csv(f)
+    pick = (lambda x: x.gauss + x.vess) if stage == "frangi" else (lambda x: x[stage])
     for p, g in d.groupby("threads"):
         b = omp[omp.threads == p]
-        f = (lambda x: x.gauss + x.vess) if stage == "frangi" else (lambda x: x[stage])
-        rows.append({"variant": v, "stage": stage, "threads": p, "base (ms)": f(b).mean() * 1e3, "variant (ms)": f(g).mean() * 1e3})
-va = pd.DataFrame(rows); va["ratio (variant / base)"] = va["variant (ms)"] / va["base (ms)"]
-display(va.style.format({"base (ms)": "{:.2f}", "variant (ms)": "{:.2f}", "ratio (variant / base)": "{:.2f}"}))
-fig, ax = plt.subplots(figsize=(8, 3.6)); w = .25
+        rows.append({"variant": v, "stage": "Frangi (gauss + vess)" if stage == "frangi" else "CLAHE", "threads": p,
+                     "base (ms)": pick(b).median() * 1e3, "variant (ms)": pick(g).median() * 1e3})
+va = pd.DataFrame(rows); va["variant / base"] = va["variant (ms)"] / va["base (ms)"]
+fig, ax = plt.subplots(figsize=(9, 4)); w = .26
 for i, (v, c) in enumerate(zip(["dynamic", "atomic", "scalepar"], ["#2a78d6", "#eb6834", "#1baf7a"])):
-    g = va[va.variant == v]; ax.bar(np.arange(len(g)) + (i - 1) * w, g["ratio (variant / base)"], w, color=c, label=v)
-ax.axhline(1, color="#0b0b0b", lw=1); ax.set_xticks(range(len(THREADS))); ax.set_xticklabels(THREADS); ax.set_xlabel("threads")
-ax.set_ylabel("time relative to base design"); ax.legend(frameon=False); plt.show()
+    g = va[va.variant == v]
+    bars = ax.bar(np.arange(len(g)) + (i - 1) * w, g["variant / base"], w, color=c, label=v)
+    for b, val in zip(bars, g["variant / base"]): ax.text(b.get_x() + w / 2, val + .02, f"{val:.2f}", ha="center", fontsize=8)
+ax.axhline(1, color="#0b0b0b", lw=1); ax.set_xticks(range(len(THREADS))); ax.set_xticklabels([f"p={p}" for p in THREADS])
+ax.set_ylim(0, va["variant / base"].max() * 1.2); ax.set_ylabel("time relative to base design")
+ax.legend(frameon=False, ncol=3, loc="upper center", bbox_to_anchor=(.5, -.12)); plt.tight_layout(); plt.show()
+display(va.style.format({"base (ms)": "{:.2f}", "variant (ms)": "{:.2f}", "variant / base": "{:.2f}"}))
 """)
 
 md(r"""
@@ -449,20 +528,29 @@ to add 8x (21 megapixels, about a minute per serial run here).
 code(r"""
 BIG = False
 scales = [1, 2, 4] + ([8] if BIG else [])
-run(f"rm -f {OUT}/s_ser.csv {OUT}/s_omp.csv")
+for f in ["s_ser.csv", "s_omp.csv"]:
+    if os.path.exists(f"{OUT}/{f}"): os.remove(f"{OUT}/{f}")
 for sc in scales:
     r = 5 if sc <= 2 else 2
     run(f"{BIN}/frangi_serial bench drive-test {DRIVE} {PARAMS} {OUT}/s_ser.csv --nt 1 --scales {sc} --warm 1 --reps {r} --images 1 --append", quiet=True)
-    run(f"{BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {OUT}/s_omp.csv --nt {TL} --scales {sc} --warm 1 --reps {r} --images 1 --append", env=BIND, quiet=True)
+    run(f"{BIN}/frangi_omp bench drive-test {DRIVE} {PARAMS} {OUT}/s_omp.csv --nt {TL} --scales {sc} --warm 1 --reps {r} --images 1 --append", quiet=True)
 ss, so = pd.read_csv(f"{OUT}/s_ser.csv"), pd.read_csv(f"{OUT}/s_omp.csv")
-mp = ss.groupby("scale").apply(lambda g: g.width.iloc[0] * g.height.iloc[0] / 1e6)
-fig, axs = plt.subplots(1, 2, figsize=(13, 3.8))
-axs[0].loglog(mp.values, ss.groupby("scale").total.mean().values * 1e3, "o-", color="#0b0b0b", label="serial")
-for p, g in so.groupby("threads"):
-    axs[0].loglog(mp.values, g.groupby("scale").total.mean().values * 1e3, "o-", label=f"p={p}")
-    axs[1].semilogx(mp.values, ss.groupby("scale").total.mean().values / g.groupby("scale").total.mean().values, "o-", label=f"p={p}")
-axs[0].set_xlabel("megapixels"); axs[0].set_ylabel("ms per image"); axs[0].legend(frameon=False); axs[0].set_title("time vs image size")
-axs[1].set_xlabel("megapixels"); axs[1].set_ylabel("speedup vs serial"); axs[1].legend(frameon=False); axs[1].set_title("speedup vs image size")
+first = ss.groupby("scale")[["width", "height"]].first()
+mp = (first.width * first.height / 1e6).values
+ts = ss.groupby("scale").total.median().values
+fig, (a0, a1) = plt.subplots(1, 2, figsize=(14, 4.2))
+a0.loglog(mp, ts * 1e3, "o-", color="#0b0b0b", lw=2.4, label="serial")
+cols = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
+for (p, g), c in zip(so.groupby("threads"), cols):
+    tp = g.groupby("scale").total.median().values
+    a0.loglog(mp, tp * 1e3, "o-", color=c, label=f"p={p}")
+    a1.semilogx(mp, ts / tp, "o-", color=c, label=f"p={p}", lw=2)
+a0.set_xlabel("megapixels"); a0.set_ylabel("ms per image"); a0.set_title("time grows with image size", loc="left")
+a1.axhline(1, color="#52514e", lw=1); a1.set_ylim(0, max(PHYS + .6, (ts / so.groupby(["threads", "scale"]).total.median().unstack().values).max() * 1.2))
+a1.set_xlabel("megapixels"); a1.set_ylabel("speedup vs serial"); a1.set_title("speedup vs image size", loc="left")
+for a in (a0, a1):
+    a.set_xticks(mp); a.set_xticklabels([f"{m:.2f}" for m in mp]); a.minorticks_off()
+    a.legend(frameon=False, ncol=3, fontsize=8, loc="upper center", bbox_to_anchor=(.5, -.16))
 plt.tight_layout(); plt.show()
 c1 = np.asarray(Image.open(f"{DRIVE}/test/images/01_test.tif").convert("RGB"))[250:310, 330:390]
 show([c1, np.asarray(Image.fromarray(c1).resize((240, 240), Image.BILINEAR))], ["native crop (60 x 60 px)", "same crop at 4x (240 x 240 px)"], ncol=2, size=3.5)
@@ -479,7 +567,7 @@ code(r"""
 if os.path.exists(f"{KAGGLE}/bench_threads_omp.csv"):
     print(open(f"{KAGGLE}/env_lscpu_e.txt").read() if os.path.exists(f"{KAGGLE}/env_lscpu_e.txt") else "")
     kser, komp = pd.read_csv(f"{KAGGLE}/bench_threads_serial.csv"), pd.read_csv(f"{KAGGLE}/bench_threads_omp.csv")
-    T_k, S_k = report(kser, komp, "Kaggle (paper)")
+    T_k, S_k = report(kser, komp, "Kaggle (paper, 2 cores x 2 threads)", 2, 4, stat="mean")
     figs = sorted(glob.glob(f"{ROOT}/runs/full/analysis/figures/*.png"))
     if figs: show(figs, [os.path.basename(f) for f in figs], ncol=3, size=4.5, cmap=None)
 else:
