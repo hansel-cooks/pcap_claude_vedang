@@ -15,6 +15,8 @@ def code(s):
 
 
 md(r"""
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hansel-cooks/pcap_claude_vedang/blob/main/notebooks/PCAP_OpenMP_Frangi_Demo.ipynb)
+
 # Serial vs OpenMP: a multi-scale Frangi pipeline for retinal vessel segmentation
 
 **PCAP mini project, Manipal Institute of Technology** (Devik Nangia, Snehal Tyagi, Srijan Bera, Prathamesh Patil)
@@ -45,29 +47,18 @@ All computation is in C (`openmp_frangi/src`); Python here only drives the binar
 md(r"""
 ## 1. Get the code and data
 
-The repository is private. Add a GitHub token with read access as a Colab secret named `GITHUB_TOKEN`
-(key icon in the left sidebar), or paste it when prompted. The token is used for the clone only and is removed
-from the git remote afterwards.
+The repository (code, DRIVE and STARE data, and the paper's Kaggle results) is cloned from GitHub. No account
+or token is needed. **Runtime > Run all** runs the whole notebook in about 10 minutes on a free CPU runtime.
 """)
 
 code(r"""
-import os, subprocess, getpass
+import os, subprocess
 REPO = "hansel-cooks/pcap_claude_vedang"
 ROOT = "/content/pcap_claude_vedang"
 if not os.path.exists(ROOT):
-    tok = None
-    try:
-        from google.colab import userdata
-        tok = userdata.get("GITHUB_TOKEN")
-    except Exception:
-        pass
-    if not tok:
-        tok = getpass.getpass("GitHub token (leave empty if the repo is public): ").strip()
-    url = f"https://x-access-token:{tok}@github.com/{REPO}.git" if tok else f"https://github.com/{REPO}.git"
-    r = subprocess.run(["git", "clone", "--depth", "1", url, ROOT], capture_output=True, text=True)
-    print(r.stdout, r.stderr.replace(tok, "***") if tok else r.stderr)
-    subprocess.run(["git", "-C", ROOT, "remote", "set-url", "origin", f"https://github.com/{REPO}.git"])
-    del tok
+    r = subprocess.run(["git", "clone", "--depth", "1", f"https://github.com/{REPO}.git", ROOT],
+                       capture_output=True, text=True)
+    print(r.stdout, r.stderr)
 print(sorted(os.listdir(ROOT)))
 """)
 

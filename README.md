@@ -8,7 +8,7 @@ DRIVE and STARE datasets. All timing runs are done on a Kaggle CPU VM (2 physica
 |---|---|
 | `openmp_frangi/` | C source (`src/`), `Makefile`, Kaggle driver and analysis scripts (`scripts/`). See its README. |
 | `paper/` | Paper in IEEE (`ieee/`) and Springer LNCS (`springer/`) formats, shared `sections/`, `refs.bib`; compiled PDFs `PCAP_OpenMP_Frangi_IEEE.pdf` and `PCAP_OpenMP_Frangi_Springer.pdf`. |
-| `notebooks/` | `PCAP_OpenMP_Frangi_Demo.ipynb`: Google Colab demo (stage-by-stage before/after images, accuracy, bit-exactness, live per-stage timings for every thread count, placement, design variants, image-size scaling, and the paper's Kaggle results). Needs a `GITHUB_TOKEN` Colab secret while the repo is private. |
+| `notebooks/` | `PCAP_OpenMP_Frangi_Demo.ipynb`: Google Colab demo (stage-by-stage before/after images, accuracy, bit-exactness, live per-stage timings for every thread count, placement, design variants, image-size scaling, and the paper's Kaggle results). [Open in Colab](https://colab.research.google.com/github/hansel-cooks/pcap_claude_vedang/blob/main/notebooks/PCAP_OpenMP_Frangi_Demo.ipynb). |
 | `data/drive/` | DRIVE training + test images, FOV masks and first-observer manual segmentations. |
 | `data/stare/` | STARE 20 images and Hoover's hand labels. |
 | `runs/pilot/` | Two-image pilot run used to debug the harness (not reported in the paper). |
@@ -35,4 +35,4 @@ On Kaggle, `scripts/run_kaggle.py` runs every experiment in the paper and writes
 - DRIVE: Staal et al., IEEE TMI 2004. Test-set manual segmentations from the Kaggle dataset
   `zionfuo/drive2004` (images verified byte-identical to the original copy).
 - STARE: Hoover et al., IEEE TMI 2000, https://cecas.clemson.edu/~ahoover/stare/probing/index.html
-- Both datasets are for research use under their providers' terms; this repository is private for that reason.
+- Both datasets are for research use under their providers' terms. Check their terms before redistributing them.
