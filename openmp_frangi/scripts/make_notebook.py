@@ -158,6 +158,146 @@ print(open(PARAMS).read())
 """)
 
 md(r"""
+## 3b. The C code: serial and OpenMP are the same loops
+
+There is **one** implementation. Each stage is a plain C loop with an OpenMP directive above it:
+
+* `frangi_serial` is compiled **without** `-fopenmp`: the compiler ignores every `#pragma omp` line and the loop runs on one thread.
+* `frangi_omp` is compiled **with** `-fopenmp`: the same pragma splits the loop's iterations across `nt` threads.
+
+Every output element is written by exactly one thread, in the serial summation order, which is why the two builds
+give bit-identical results (section 7). The cells below print the real source from `openmp_frangi/src`.
+""")
+
+code(r"""
+from IPython.display import Code
+SRC = f"{CODE}/src"
+
+def c_function(name, file="pipeline.c"):
+    # return (first_line, text) of the C function or macro called `name`
+    lines = open(f"{SRC}/{file}").read().splitlines()
+    if name.startswith("#define"):
+        i = next(k for k, l in enumerate(lines) if l.startswith(name))
+        j = i
+        while lines[j].rstrip().endswith("\\"): j += 1
+        return i + 1, "\n".join(lines[i:j + 1])
+    pat = re.compile(r"^[A-Za-z_][\w \*]*\b" + re.escape(name) + r"\(")
+    i = next(k for k, l in enumerate(lines) if pat.match(l))
+    depth, j, opened = 0, i, False
+    while True:
+        depth += lines[j].count("{") - lines[j].count("}")
+        opened = opened or "{" in lines[j]
+        if opened and depth == 0: break
+        j += 1
+    return i + 1, "\n".join(lines[i:j + 1])
+
+def show_c(*names, file="pipeline.c"):
+    for n in names:
+        start, text = c_function(n, file)
+        display(Markdown(f"`src/{file}`, line {start}: **{n}**"))
+        display(Code(text, language="c"))
+
+print("Build commands (from the Makefile):")
+print(run(f"grep -A2 'frangi_serial:\\|frangi_omp:' {CODE}/Makefile | grep CC", quiet=True))
+show_c("wtime")   # the timer: omp_get_wtime in the OpenMP build, a monotonic clock in the serial build
+""")
+
+md(r"""
+### Stage 1: green channel
+One `parallel for` over all pixels; each thread copies a contiguous block of pixels.
+""")
+code(r"""show_c("stage_green")""")
+
+md(r"""
+### Stage 2: CLAHE
+The base design gives each of the 64 tiles to one thread (`schedule(static)`), so every histogram is private and no
+synchronisation is needed. The two ablations are in the same function: `dynamic` scheduling of the tile loop, and a
+pixel-parallel version that updates shared histograms with `#pragma omp atomic`. The bilinear blend at the end is a
+`parallel for` over rows.
+""")
+code(r"""show_c("clahe_lut", "stage_clahe")""")
+
+md(r"""
+### Stage 3a: Gaussian derivatives (about 72% of the run time)
+Row pass: `#pragma omp parallel` creates the threads once, each allocates its own padded row buffer, and
+`#pragma omp for` shares out the rows. Column pass: a `parallel for` over output rows; the inner `x` loop is
+vectorised by the compiler. Three derivative images are produced per sweep, so six 1-D passes per scale.
+""")
+code(r"""show_c("conv_rows", "conv_cols")""")
+
+md(r"""
+### Stage 3b: Hessian eigenvalues and vesselness
+A `parallel for` over pixels: closed-form eigenvalues, the Frangi formula and the running maximum over scales.
+""")
+code(r"""show_c("vesselness")""")
+
+md(r"""
+### Stage 3: the scale loop
+In the base design the four scales run one after another and each pass is parallel inside. The `scalepar` variant
+instead runs the four scales concurrently (`schedule(dynamic,1)`), one thread per scale, then combines them.
+""")
+code(r"""show_c("stage_frangi")""")
+
+md(r"""
+### Stages 4 and 5: threshold and morphology
+Threshold is a `parallel for` over pixels. Opening and closing are four 3x3 erosion/dilation passes, each a
+`parallel for` over rows (the loop body is a macro shared by erosion and dilation).
+""")
+code(r"""show_c("stage_threshold", "#define MORPH3_BODY", "erode3", "dilate3", "stage_morph")""")
+
+md(r"""
+### Metrics and the whole pipeline
+The confusion counts use an OpenMP `reduction`. `run_pipeline` chains the five stages and times each one.
+""")
+code(r"""show_c("confusion", "run_pipeline")""")
+
+md(r"""
+## 3c. Compile and run it on one image
+
+The two commands below are exactly what the Makefile does. Then both binaries process the first DRIVE test image:
+the serial build once, the OpenMP build at every thread count, with the time of each stage printed.
+""")
+
+code(r"""
+%cd {CODE}
+!gcc -std=gnu99 -O3 -march=native -Wno-unknown-pragmas -o bin/frangi_serial src/main.c src/pipeline.c src/io.c -lm
+!gcc -std=gnu99 -O3 -march=native -fopenmp              -o bin/frangi_omp    src/main.c src/pipeline.c src/io.c -lm
+!ls -l bin
+""")
+
+code(r"""
+ONE = f"{OUT}/one"; os.makedirs(ONE, exist_ok=True)
+for f in glob.glob(f"{ONE}/*.csv"): os.remove(f)
+run(f"{BIN}/frangi_serial bench drive-test {DRIVE} {PARAMS} {ONE}/serial.csv --nt 1 --warm 2 --reps 10 --images 1", quiet=True)
+run(f"{BIN}/frangi_omp    bench drive-test {DRIVE} {PARAMS} {ONE}/omp.csv --nt {','.join(map(str, sorted({1, 2, NP})))} --warm 2 --reps 10 --images 1", quiet=True)
+one = pd.concat([pd.read_csv(f"{ONE}/serial.csv"), pd.read_csv(f"{ONE}/omp.csv")])
+one["config"] = np.where(one.build == "serial", "serial", "OpenMP, " + one.threads.astype(str) + " thr")
+t = one.groupby("config", sort=False)[STAGES + ["total"]].median() * 1e3
+t.columns = [LABEL[c] for c in t.columns]
+display(Markdown("**Image 01_test, median of 10 runs, milliseconds per stage**"))
+display(t.style.format("{:.2f}"))
+print(run(f"{BIN}/frangi_omp eval drive-test {DRIVE} {PARAMS} {ONE}/acc.csv --images 1 --masks {ONE}", quiet=True))
+show([np.asarray(Image.open(f"{DRIVE}/test/images/01_test.tif").convert("RGB")), f"{ONE}/01_test_vesselness.png",
+      f"{ONE}/01_test_mask.png", np.asarray(Image.open(f"{DRIVE}/test/1st_manual/01_manual1.gif").convert("L"))],
+     ["input", "vesselness V (C output)", "segmentation (C output)", "expert annotation"], ncol=4, size=3.6)
+""")
+
+md(r"""
+### Try it yourself
+Change `THREADS_TO_TRY`, `IMAGE_COUNT` or the dataset (`drive-test` or `stare`) and rerun the cell. To change the
+algorithm, edit `src/pipeline.c` (for example remove a `#pragma omp` line), then rerun the compile cell above.
+""")
+
+code(r"""
+THREADS_TO_TRY = "1,2"
+IMAGE_COUNT = 1
+DATASET, ROOTDIR = "drive-test", DRIVE        # or: "stare", STARE
+print(run(f"{BIN}/frangi_omp bench {DATASET} {ROOTDIR} {PARAMS} {ONE}/try.csv --nt {THREADS_TO_TRY} --warm 1 --reps 5 --images {IMAGE_COUNT}", quiet=True))
+d = pd.read_csv(f"{ONE}/try.csv")
+print((d.groupby("threads")[STAGES + ["total"]].median() * 1e3).round(2).rename(columns=LABEL).to_string())
+""")
+
+md(r"""
 ## 4. The datasets
 
 **DRIVE** (Staal et al., 2004): 40 colour fundus images, 565 x 584 pixels, 20 training and 20 test, each with a
